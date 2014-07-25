@@ -38,8 +38,7 @@ after_failure:
 notifications:
   irc:
     channels:
-      - "irc.mozilla.org#qa-bugzilla"
-      - "irc.mozilla.org#bugzilla"
+      - "irc.mozilla.org#dkl"
     template:
       - "Bugzilla %{branch} : %{author} : %{message}"
       - "Commit Message : %{commit_message}"

@@ -8,16 +8,24 @@ perl:
 env:
   - TEST_SUITE=sanity
   - TEST_SUITE=docs
+  - TEST_SUITE=webservices DB=mysql
+  - TEST_SUITE=selenium DB=mysql
+  - TEST_SUITE=webservices DB=pg
+  - TEST_SUITE=selenium DB=pg
 #  - TEST_SUITE=checksetup DB=mysql
 
 matrix:
   exclude:
-    - perl: 5.10
-      env: TEST_SUITE=docs
     - perl: 5.12
       env: TEST_SUITE=docs
-    - perl: 5.14
-      env: TEST_SUITE=docs
+    - perl: 5.10
+      env: TEST_SUITE=webservices DB=mysql
+    - perl: 5.12
+      env: TEST_SUITE=selenium DB=mysql
+    - perl: 5.10
+      env: TEST_SUITE=webservices DB=pg
+    - perl: 5.12
+      env: TEST_SUITE=selenium DB=pg
 #    - perl: 5.10
 #      env: TEST_SUITE=checksetup DB=mysql
 #    - perl: 5.12
@@ -26,7 +34,7 @@ matrix:
 #      env: TEST_SUITE=checksetup DB=mysql
 
 before_install:
-  - git clone https://github.com/bugzilla/qa.git -b 4.4 qa
+  - git clone https://github.com/dklawren/qa.git -b master qa
 
 install: true
 
@@ -34,7 +42,6 @@ script: ./qa/travis.sh
 
 after_failure:
   - sudo cat /var/log/apache2/error.log
-
 
 notifications:
   irc:

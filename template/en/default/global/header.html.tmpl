@@ -85,8 +85,6 @@
       <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     [% END %]
 
-    [% PROCESS "global/site-navigation.html.tmpl" %]
-
     [% PROCESS 'global/setting-descs.none.tmpl' %]
 
     [% SET yui = yui_resolve_deps(yui, yui_deps) %]
@@ -156,16 +154,19 @@
                 [%# Please keep these in alphabetical order. %]
 
                 attach_desc_required:
-                    'You must enter a Description for this attachment.',
+                    "You must enter a Description for this attachment.",
                 component_required:
-                    'You must select a Component for this [% terms.bug %].',
+                    "You must select a Component for this [% terms.bug %].",
                 description_required:
-                    'You must enter a Description for this [% terms.bug %].',
+                    "You must enter a Description for this [% terms.bug %].",
                 short_desc_required:
-                    'You must enter a Summary for this [% terms.bug %].',
+                    "You must enter a Summary for this [% terms.bug %].",
                 version_required:
-                    'You must select a Version for this [% terms.bug %].'
+                    "You must select a Version for this [% terms.bug %]."
             }
+            [% IF javascript_urls.containsany(['js/bug.js', 'js/field.js', 'js/comment-tagging.js']) %]
+              , api_token: '[% get_api_token FILTER js FILTER html %]'
+            [% END %]
         };
 
         [% FOREACH yui_name = yui %]

@@ -10,6 +10,7 @@ package Bugzilla::Template;
 
 use 5.10.1;
 use strict;
+use warnings;
 
 use Bugzilla::Constants;
 use Bugzilla::WebService::Constants;
@@ -262,28 +263,23 @@ sub quoteUrls {
 
     my $bugs_re = qr/\Q$bugs_word\E$s*\#?$s*
                      \d+(?:$s*,$s*\#?$s*\d+)+/ix;
-    while ($text =~ m/($bugs_re)/g) {
-        my $offset = $-[0];
-        my $length = $+[0] - $-[0];
-        my $match  = $1;
 
+    $text =~ s{($bugs_re)}{
+        my $match = $1;
         $match =~ s/((?:#$s*)?(\d+))/$bug_link_func->($2, $1);/eg;
-        # Replace the old string with the linkified one.
-        substr($text, $offset, $length) = $match;
-    }
+        $match;
+    }eg;
 
     my $comments_word = template_var('terms')->{comments};
 
     my $comments_re = qr/(?:comments|\Q$comments_word\E)$s*\#?$s*
                          \d+(?:$s*,$s*\#?$s*\d+)+/ix;
-    while ($text =~ m/($comments_re)/g) {
-        my $offset = $-[0];
-        my $length = $+[0] - $-[0];
-        my $match  = $1;
 
+    $text =~ s{($comments_re)}{
+        my $match = $1;
         $match =~ s|((?:#$s*)?(\d+))|<a href="$current_bugurl#c$2">$1</a>|g;
-        substr($text, $offset, $length) = $match;
-    }
+        $match;
+    }eg;
 
     # Old duplicate markers. These don't use $bug_word because they are old
     # and were never customizable.
@@ -611,6 +607,21 @@ $Template::Stash::LIST_OPS->{ clone } =
       return [@$list];
   };
 
+# Allow us to sort the list of fields correctly
+$Template::Stash::LIST_OPS->{ sort_by_field_name } =
+    sub {
+        sub field_name {
+            if ($_[0] eq 'noop') {
+                # Sort --- first
+                return '';
+            }
+            # Otherwise sort by field_desc or description
+            return $_[1]{$_[0]} || $_[0];
+        }
+        my ($list, $field_desc) = @_;
+        return [ sort { lc field_name($a, $field_desc) cmp lc field_name($b, $field_desc) } @$list ];
+    };
+
 # Allow us to still get the scalar if we use the list operation ".0" on it,
 # as we often do for defaults in query.cgi and other places.
 $Template::Stash::SCALAR_OPS->{ 0 } = 
@@ -795,6 +806,24 @@ sub create {
                            },
                            1
                          ],
+
+            markdown => [ sub {
+                              my ($context, $bug, $comment, $user) = @_;
+                              return sub {
+                                  my $text = shift;
+                                  return unless $text;
+
+                                  if (Bugzilla->feature('markdown')
+                                      && ((ref($comment) eq 'HASH' && $comment->{is_markdown})
+                                         || (ref($comment) eq 'Bugzilla::Comment' && $comment->is_markdown)))
+                                  {
+                                      return Bugzilla->markdown->markdown($text);
+                                  }
+                                  return quoteUrls($text, $bug, $comment, $user);
+                              };
+                          },
+                          1
+                        ],
 
             bug_link => [ sub {
                               my ($context, $bug, $options) = @_;
@@ -999,6 +1028,12 @@ sub create {
             'get_login_request_token' => sub {
                 my $cookie = Bugzilla->cgi->cookie('Bugzilla_login_request_cookie');
                 return $cookie ? issue_hash_token(['login_request', $cookie]) : '';
+            },
+
+            'get_api_token' => sub {
+                return '' unless Bugzilla->user->id;
+                my $cache = Bugzilla->request_cache;
+                return $cache->{api_token} //= issue_api_token();
             },
 
             # A way for all templates to get at Field data, cached.

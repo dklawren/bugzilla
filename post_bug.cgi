@@ -1,4 +1,4 @@
-#!/usr/bin/perl -wT
+#!/usr/bin/perl -T
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -8,6 +8,8 @@
 
 use 5.10.1;
 use strict;
+use warnings;
+
 use lib qw(. lib);
 
 use Bugzilla;
@@ -116,6 +118,7 @@ foreach my $field (qw(cc groups)) {
     $bug_params{$field} = [$cgi->param($field)];
 }
 $bug_params{'comment'} = $comment;
+$bug_params{'is_markdown'} = $cgi->param('use_markdown');
 
 my @multi_selects = grep {$_->type == FIELD_TYPE_MULTI_SELECT && $_->enter_bug}
                          Bugzilla->active_custom_fields;

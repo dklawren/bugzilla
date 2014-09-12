@@ -15,6 +15,7 @@ package Bugzilla::Install::Requirements;
 
 use 5.10.1;
 use strict;
+use warnings;
 
 use Bugzilla::Constants;
 use Bugzilla::Install::Util qw(install_string bin_loc
@@ -165,6 +166,12 @@ sub REQUIRED_MODULES {
         module  => 'File::Slurp',
         version => '9999.13',
     },
+    {
+        package => 'JSON-XS',
+        module  => 'JSON::XS',
+        # 2.0 is the first version that will work with JSON::RPC.
+        version => '2.01',
+    },
     );
 
     if (ON_WINDOWS) {
@@ -298,13 +305,6 @@ sub OPTIONAL_MODULES {
         feature => ['jsonrpc', 'rest'],
     },
     {
-        package => 'JSON-XS',
-        module  => 'JSON::XS',
-        # 2.0 is the first version that will work with JSON::RPC.
-        version => '2.0',
-        feature => ['jsonrpc_faster'],
-    },
-    {
         package => 'Test-Taint',
         module  => 'Test::Taint',
         # 1.06 no longer throws warnings with Perl 5.10+.
@@ -404,6 +404,14 @@ sub OPTIONAL_MODULES {
         version => '0',
         feature => ['memcached'],
     },
+
+    # Markdown
+    {
+        package => 'Text-Markdown',
+        module  => 'Text::Markdown',
+        version => '1.0.26',
+        feature => ['markdown'],
+    }
     );
 
     my $extra_modules = _get_extension_requirements('OPTIONAL_MODULES');
@@ -427,6 +435,7 @@ use constant FEATURE_FILES => (
                       'Bugzilla/JobQueue/*', 'jobqueue.pl'],
     patch_viewer  => ['Bugzilla/Attachment/PatchReader.pm'],
     updates       => ['Bugzilla/Update.pm'],
+    markdown      => ['Bugzilla/Markdown.pm'],
     memcached     => ['Bugzilla/Memcache.pm'],
 );
 

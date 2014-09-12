@@ -1,4 +1,4 @@
-#!/usr/bin/perl -wT
+#!/usr/bin/perl -T
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -8,6 +8,8 @@
 
 use 5.10.1;
 use strict;
+use warnings;
+
 use lib qw(. lib);
 
 use Bugzilla;
@@ -256,7 +258,7 @@ sub cancelChangeEmail {
         # check to see if it has been altered
         if ($user->login ne $old_email) {
             $user->set_login($old_email);
-            $user->update({ keep_session => 1 });
+            $user->update({ keep_tokens => 1 });
 
             $vars->{'message'} = "email_change_canceled_reinstated";
         } 

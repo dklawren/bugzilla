@@ -167,6 +167,7 @@ sub cancelChangePassword {
 # password and that the new password is valid.
 sub changePassword {
     my ($user_id, $token) = @_;
+    my $dbh = Bugzilla->dbh;
 
     my $password = $cgi->param('password');
     (defined $password && defined $cgi->param('matchpassword'))
@@ -180,6 +181,8 @@ sub changePassword {
     $user->set_password($password);
     $user->update();
     delete_token($token);
+    $dbh->do(q{DELETE FROM tokens WHERE userid = ?
+               AND tokentype = 'password'}, undef, $user_id);
 
     Bugzilla->logout_user_by_id($user_id);
 
@@ -310,7 +313,7 @@ sub confirm_create_account {
 
     my $otheruser = Bugzilla::User->create({
         login_name => $login_name, 
-        realname   => $cgi->param('realname'), 
+        realname   => scalar $cgi->param('realname'),
         cryptpassword => $password});
 
     # Now delete this token.

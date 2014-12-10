@@ -101,6 +101,7 @@ use constant WS_ERROR_CODE => {
     comment_id_invalid => 111,
     comment_too_long => 114,
     comment_invalid_isprivate => 117,
+    markdown_disabled => 140,
     # Comment tagging
     comment_tag_disabled => 125,
     comment_tag_invalid => 126,
@@ -183,6 +184,7 @@ use constant WS_ERROR_CODE => {
     product_must_have_description => 703,
     product_must_have_version => 704,
     product_must_define_defaultmilestone => 705,
+    product_admin_denied                 => 706,
 
     # Group errors are 800-900
     empty_group_name => 800,
@@ -206,9 +208,13 @@ use constant WS_ERROR_CODE => {
     flag_type_not_editable        => 1105,
 
     # Component errors are 1200-1300
-    component_already_exists => 1200,
-    component_is_last        => 1201,
-    component_has_bugs       => 1202,
+    component_already_exists               => 1200,
+    component_is_last                      => 1201,
+    component_has_bugs                     => 1202,
+    component_blank_name                   => 1210,
+    component_blank_description            => 1211,
+    multiple_components_update_not_allowed => 1212,
+    component_need_initialowner            => 1213,
 
     # Errors thrown by the WebService itself. The ones that are negative 
     # conform to http://xmlrpc-epi.sourceforge.net/specs/rfc.fault_codes.php
@@ -238,26 +244,33 @@ use constant STATUS_GONE             => 410;
 # the related webvservice call. We choose the appropriate
 # http status code based on the error code or use the
 # default STATUS_BAD_REQUEST.
-use constant REST_STATUS_CODE_MAP => {
-    51       => STATUS_NOT_FOUND,
-    101      => STATUS_NOT_FOUND,
-    102      => STATUS_NOT_AUTHORIZED,
-    106      => STATUS_NOT_AUTHORIZED,
-    109      => STATUS_NOT_AUTHORIZED,
-    110      => STATUS_NOT_AUTHORIZED,
-    113      => STATUS_NOT_AUTHORIZED,
-    115      => STATUS_NOT_AUTHORIZED,
-    120      => STATUS_NOT_AUTHORIZED,
-    300      => STATUS_NOT_AUTHORIZED,
-    301      => STATUS_NOT_AUTHORIZED,
-    302      => STATUS_NOT_AUTHORIZED,
-    303      => STATUS_NOT_AUTHORIZED,
-    304      => STATUS_NOT_AUTHORIZED,
-    410      => STATUS_NOT_AUTHORIZED,
-    504      => STATUS_NOT_AUTHORIZED,
-    505      => STATUS_NOT_AUTHORIZED,
-    32614    => STATUS_NOT_FOUND,
-    _default => STATUS_BAD_REQUEST
+sub REST_STATUS_CODE_MAP {
+    my $status_code_map = {
+        51       => STATUS_NOT_FOUND,
+        101      => STATUS_NOT_FOUND,
+        102      => STATUS_NOT_AUTHORIZED,
+        106      => STATUS_NOT_AUTHORIZED,
+        109      => STATUS_NOT_AUTHORIZED,
+        110      => STATUS_NOT_AUTHORIZED,
+        113      => STATUS_NOT_AUTHORIZED,
+        115      => STATUS_NOT_AUTHORIZED,
+        120      => STATUS_NOT_AUTHORIZED,
+        300      => STATUS_NOT_AUTHORIZED,
+        301      => STATUS_NOT_AUTHORIZED,
+        302      => STATUS_NOT_AUTHORIZED,
+        303      => STATUS_NOT_AUTHORIZED,
+        304      => STATUS_NOT_AUTHORIZED,
+        410      => STATUS_NOT_AUTHORIZED,
+        504      => STATUS_NOT_AUTHORIZED,
+        505      => STATUS_NOT_AUTHORIZED,
+        32614    => STATUS_NOT_FOUND,
+        _default => STATUS_BAD_REQUEST
+    };
+
+    Bugzilla::Hook::process('webservice_status_code_map',
+        { status_code_map => $status_code_map });
+
+    return $status_code_map;
 };
 
 # These are the fallback defaults for errors not in ERROR_CODE.
@@ -305,6 +318,8 @@ sub WS_DISPATCH {
 =head1 B<Methods in need of POD>
 
 =over
+
+=item REST_STATUS_CODE_MAP
 
 =item WS_DISPATCH
 

@@ -312,8 +312,8 @@ sub new {
     # If we get something that looks like a word (not a number),
     # make it the "name" param.
     if (!defined $param
-        || (!ref($param) && $param =~ /\D/)
-        || (ref($param) && $param->{id} =~ /\D/))
+        || (!ref($param) && $param !~ /^\d+$/)
+        || (ref($param) && $param->{id} !~ /^\d+$/))
     {
         if ($param) {
             my $alias = ref($param) ? $param->{id} : $param;
@@ -1030,12 +1030,6 @@ sub update {
                                    join(', ', @added_names)];
     }
 
-    # Flags
-    my ($removed, $added) = Bugzilla::Flag->update_flags($self, $old_bug, $delta_ts);
-    if ($removed || $added) {
-        $changes->{'flagtypes.name'} = [$removed, $added];
-    }
-
     # Comments
     foreach my $comment (@{$self->{added_comments} || []}) {
         # Override the Comment's timestamp to be identical to the update
@@ -1057,6 +1051,9 @@ sub update {
         LogActivityEntry($self->id, "longdescs.isprivate", $from, $to, 
                          $user->id, $delta_ts, $comment->id);
     }
+
+    # Clear the cache of comments
+    delete $self->{comments};
 
     # Insert the values into the multiselect value tables
     my @multi_selects = grep {$_->type == FIELD_TYPE_MULTI_SELECT}
@@ -1088,6 +1085,12 @@ sub update {
     if (scalar @$removed_see || scalar @$added_see) {
         $changes->{see_also} = [join(', ', map { $_->name } @$removed_see),
                                 join(', ', map { $_->name } @$added_see)];
+    }
+
+    # Flags
+    my ($removed, $added) = Bugzilla::Flag->update_flags($self, $old_bug, $delta_ts);
+    if ($removed || $added) {
+        $changes->{'flagtypes.name'} = [$removed, $added];
     }
 
     $_->update foreach @{ $self->{_update_ref_bugs} || [] };
@@ -2907,8 +2910,19 @@ sub add_alias {
     return if !$alias;
     my $aliases = $self->_check_alias($alias);
     $alias = $aliases->[0];
-    my $bug_aliases = $self->alias;
-    push(@$bug_aliases, $alias) if !grep($_ eq $alias, @$bug_aliases);
+    my @new_aliases;
+    my $found = 0;
+    foreach my $old_alias (@{ $self->alias }) {
+        if (lc($old_alias) eq lc($alias)) {
+            push(@new_aliases, $alias);
+            $found = 1;
+        }
+        else {
+            push(@new_aliases, $old_alias);
+        }
+    }
+    push(@new_aliases, $alias) if !$found;
+    $self->{alias} = \@new_aliases;
 }
 
 sub remove_alias {
@@ -3947,6 +3961,11 @@ sub choices {
     # Don't include the empty resolution in drop-downs.
     my @resolutions = grep($_->name, @{ $resolution_field->legal_values });
     $choices{'resolution'} = \@resolutions;
+
+    foreach my $key (keys %choices) {
+        my $value = $self->$key;
+        $choices{$key} = [grep { $_->is_active || $_->name eq $value } @{ $choices{$key} }];
+    }
 
     $self->{'choices'} = \%choices;
     return $self->{'choices'};

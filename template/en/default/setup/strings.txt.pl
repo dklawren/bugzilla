@@ -83,6 +83,7 @@ the documentation of Bugzilla::Extension for details.
 END
     feature_auth_ldap         => 'LDAP Authentication',
     feature_auth_radius       => 'RADIUS Authentication',
+    feature_documentation     => 'Documentation',
     feature_graphical_reports => 'Graphical Reports',
     feature_html_desc         => 'More HTML in Product/Group Descriptions',
     feature_inbound_email     => 'Inbound Email',
@@ -154,10 +155,6 @@ If this is set to 1, checksetup.pl will create .htaccess files if
 they don't exist.
 
 If this is set to 0, checksetup.pl will not create .htaccess files.
-END
-    localconfig_cvsbin => <<'END',
-If you want to use the CVS integration of the Patch Viewer, please specify
-the full path to the "cvs" executable here.
 END
     localconfig_db_check => <<'END',
 Should checksetup.pl try to verify that your database setup is correct?

@@ -23,13 +23,6 @@ use Bugzilla::Install::Util qw(install_string bin_loc
 use List::Util qw(max);
 use Term::ANSIColor;
 
-# Return::Value 1.666002 pollutes the error log with warnings about this
-# deprecated module. We have to set NO_CLUCK = 1 before loading Email::Send
-# in have_vers() to disable these warnings.
-BEGIN {
-    $Return::Value::NO_CLUCK = 1;
-}
-
 use parent qw(Exporter);
 our @EXPORT = qw(
     REQUIRED_MODULES
@@ -131,12 +124,11 @@ sub REQUIRED_MODULES {
         module  => 'Template',
         version => '2.24'
     },
-    # 2.04 implement the "Test" method (to write to data/mailer.testfile).
+    # 1.300011 has a debug mode for SMTP and automatically pass -i to sendmail.
     {
-        package => 'Email-Send',
-        module  => 'Email::Send',
-        version => ON_WINDOWS ? '2.16' : '2.04',
-        blacklist => ['^2\.196$']
+        package => 'Email-Sender',
+        module  => 'Email::Sender',
+        version => '1.300011',
     },
     {
         package => 'Email-MIME',
@@ -357,8 +349,8 @@ sub OPTIONAL_MODULES {
     {
         package => 'TheSchwartz',
         module  => 'TheSchwartz',
-        # 1.07 supports the prioritization of jobs.
-        version => 1.07,
+        # 1.10 supports declining of jobs.
+        version => 1.10,
         feature => ['jobqueue'],
     },
     {
@@ -411,6 +403,14 @@ sub OPTIONAL_MODULES {
         module  => 'Text::Markdown',
         version => '1.0.26',
         feature => ['markdown'],
+    },
+
+    # Documentation
+    {
+        package => 'File-Copy-Recursive',
+        module  => 'File::Copy::Recursive',
+        version => 0,
+        feature => ['documentation'],
     }
     );
 

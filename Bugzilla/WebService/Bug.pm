@@ -352,15 +352,16 @@ sub _translate_comment {
                                                   : undef;
 
     my $comment_hash = {
-        id         => $self->type('int', $comment->id),
-        bug_id     => $self->type('int', $comment->bug_id),
-        creator    => $self->type('email', $comment->author->login),
-        time       => $self->type('dateTime', $comment->creation_ts),
+        id            => $self->type('int', $comment->id),
+        bug_id        => $self->type('int', $comment->bug_id),
+        creator       => $self->type('email', $comment->author->login),
+        time          => $self->type('dateTime', $comment->creation_ts),
         creation_time => $self->type('dateTime', $comment->creation_ts),
-        is_private => $self->type('boolean', $comment->is_private),
-        text       => $self->type('string', $comment->body_full),
+        is_private    => $self->type('boolean', $comment->is_private),
+        is_markdown   => $self->type('boolean', $comment->is_markdown),
+        text          => $self->type('string', $comment->body_full),
         attachment_id => $self->type('int', $attach_id),
-        count      => $self->type('int', $comment->count),
+        count         => $self->type('int', $comment->count),
     };
 
     # Don't load comment tags unless enabled
@@ -824,10 +825,21 @@ sub add_attachment {
 
         $attachment->update($timestamp);
         my $comment = $params->{comment} || '';
-        $attachment->bug->add_comment($comment, 
-            { isprivate  => $attachment->isprivate,
-              type       => CMT_ATTACHMENT_CREATED,
-              extra_data => $attachment->id });
+
+        my $is_markdown = 0;
+        if (ref $params->{comment} eq 'HASH') {
+            $is_markdown = $params->{comment}->{is_markdown};
+            $comment     = $params->{comment}->{body};
+        }
+
+        ThrowUserError('markdown_disabled')
+            if $is_markdown && !Bugzilla->user->use_markdown();
+
+        $attachment->bug->add_comment($comment,
+            { is_markdown => $is_markdown,
+              isprivate   => $attachment->isprivate,
+              type        => CMT_ATTACHMENT_CREATED,
+              extra_data  => $attachment->id });
         push(@created, $attachment);
     }
     $_->bug->update($timestamp) foreach @created;
@@ -873,6 +885,15 @@ sub update_attachment {
 
     my $flags = delete $params->{flags};
     my $comment = delete $params->{comment};
+    my $is_markdown = 0;
+
+    if (ref $comment eq 'HASH') {
+        $is_markdown = $comment->{is_markdown};
+        $comment     = $comment->{body};
+    }
+
+    ThrowUserError('markdown_disabled')
+        if $is_markdown && !$user->use_markdown();
 
     # Update the values
     foreach my $attachment (@attachments) {
@@ -892,9 +913,10 @@ sub update_attachment {
 
         if ($comment = trim($comment)) {
             $attachment->bug->add_comment($comment,
-                { isprivate  => $attachment->isprivate,
-                  type       => CMT_ATTACHMENT_UPDATED,
-                  extra_data => $attachment->id });
+                { is_markdown => $is_markdown,
+                  isprivate   => $attachment->isprivate,
+                  type        => CMT_ATTACHMENT_UPDATED,
+                  extra_data  => $attachment->id });
         }
 
         $changes = translate($changes, ATTACHMENT_MAPPED_RETURNS);
@@ -951,9 +973,14 @@ sub add_comment {
     if (defined $params->{private}) {
         $params->{is_private} = delete $params->{private};
     }
+
+    ThrowUserError('markdown_disabled')
+        if $params->{is_markdown} && !$user->use_markdown();
+
     # Append comment
-    $bug->add_comment($comment, { isprivate => $params->{is_private},
-                                  work_time => $params->{work_time} });
+    $bug->add_comment($comment, { isprivate   => $params->{is_private},
+                                  is_markdown => $params->{is_markdown},
+                                  work_time   => $params->{work_time} });
     
     # Capture the call to bug->update (which creates the new comment) in 
     # a transaction so we're sure to get the correct comment_id.
@@ -1179,13 +1206,11 @@ sub _bug_to_hash {
     # A bug attribute is "basic" if it doesn't require an additional
     # database call to get the info.
     my %item = %{ filter $params, {
-        creation_time    => $self->type('dateTime', $bug->creation_ts),
         # No need to format $bug->deadline specially, because Bugzilla::Bug
         # already does it for us.
         deadline         => $self->type('string', $bug->deadline),
         id               => $self->type('int', $bug->bug_id),
         is_confirmed     => $self->type('boolean', $bug->everconfirmed),
-        last_change_time => $self->type('dateTime', $bug->delta_ts),
         op_sys           => $self->type('string', $bug->op_sys),
         platform         => $self->type('string', $bug->rep_platform),
         priority         => $self->type('string', $bug->priority),
@@ -1199,9 +1224,8 @@ sub _bug_to_hash {
         whiteboard       => $self->type('string', $bug->status_whiteboard),
     } };
 
-    # First we handle any fields that require extra SQL calls.
-    # We don't do the SQL calls at all if the filter would just
-    # eliminate them anyway.
+    # First we handle any fields that require extra work (such as date parsing
+    # or SQL calls).
     if (filter_wants $params, 'alias') {
         $item{alias} = [ map { $self->type('string', $_) } @{ $bug->alias } ];
     }
@@ -1223,6 +1247,9 @@ sub _bug_to_hash {
         my @cc = map { $self->type('email', $_) } @{ $bug->cc };
         $item{'cc'} = \@cc;
         $item{'cc_detail'} = [ map { $self->_user_to_hash($_, $params, undef, 'cc') } @{ $bug->cc_users } ];
+    }
+    if (filter_wants $params, 'creation_time') {
+        $item{'creation_time'} = $self->type('dateTime', $bug->creation_ts);
     }
     if (filter_wants $params, 'creator') {
         $item{'creator'} = $self->type('email', $bug->reporter->login);
@@ -1247,6 +1274,9 @@ sub _bug_to_hash {
         my @keywords = map { $self->type('string', $_->name) }
                        @{ $bug->keyword_objects };
         $item{'keywords'} = \@keywords;
+    }
+    if (filter_wants $params, 'last_change_time') {
+        $item{'last_change_time'} = $self->type('dateTime', $bug->delta_ts);
     }
     if (filter_wants $params, 'product') {
         $item{product} = $self->type('string', $bug->product);
@@ -2074,6 +2104,10 @@ may be deprecated and removed in a future release.
 
 C<boolean> True if this comment is private (only visible to a certain
 group called the "insidergroup"), False otherwise.
+
+=item is_markdown
+
+C<boolean> True if this comment needs Markdown processing, false otherwise.
 
 =back
 
@@ -3092,6 +3126,9 @@ don't want it to be assigned to the component owner.
 =item C<comment_is_private> (boolean) - If set to true, the description
 is private, otherwise it is assumed to be public.
 
+=item C<is_markdown> (boolean) - If set to true, the description
+has Markdown structures, otherwise it is a normal text.
+
 =item C<groups> (array) - An array of group names to put this
 bug into. You can see valid group names on the Permissions
 tab of the Preferences screen, or, if you are an administrator,
@@ -3247,6 +3284,8 @@ Bugzilla B<4.4>.
 
 =item REST API call added in Bugzilla B<5.0>.
 
+=item C<is_markdown> option added in Bugzilla B<5.0>.
+
 =back
 
 =back
@@ -3306,7 +3345,21 @@ C<text/plain> or C<image/png>.
 
 =item C<comment>
 
-C<string> A comment to add along with this attachment.
+C<string> or hash. A comment to add along with this attachment. If C<comment>
+is a hash, it has the following keys:
+
+=over
+
+=item C<body>
+
+C<string> The body of the comment.
+
+=item C<is_markdown>
+
+C<boolean> If set to true, the comment has Markdown structures; otherwise, it
+is an ordinary text.
+
+=back
 
 =item C<is_patch>
 
@@ -3384,6 +3437,10 @@ the type id value to update or add a flag.
 
 The flag type is inactive and cannot be used to create new flags.
 
+=item 140 (Markdown Disabled)
+
+You tried to set the C<is_markdown> flag of the comment to true but the Markdown feature is not enabled.
+
 =item 600 (Attachment Too Large)
 
 You tried to attach a file that was larger than Bugzilla will accept.
@@ -3418,6 +3475,8 @@ You set the "data" field to an empty string.
 =item The return value has changed in Bugzilla B<4.4>.
 
 =item REST API call added in Bugzilla B<5.0>.
+
+=item C<is_markdown> added in Bugzilla B<5.0>.
 
 =back
 
@@ -3465,7 +3524,21 @@ attachment.
 
 =item C<comment>
 
-C<string> An optional comment to add to the attachment's bug.
+C<string> or hash: An optional comment to add to the attachment's bug. If C<comment> is
+a hash, it has the following keys:
+
+=over
+
+=item C<body>
+
+C<string> The body of the comment to be added.
+
+=item C<is_markdown>
+
+C<boolean> If set to true, the comment has Markdown structures; otherwise it is a normal
+text.
+
+=back
 
 =item C<content_type>
 
@@ -3614,6 +3687,11 @@ the type id value to update or add a flag.
 
 The flag type is inactive and cannot be used to create new flags.
 
+=item 140 (Markdown Disabled)
+
+You tried to set the C<is_markdown> flag of the C<comment> to true but Markdown feature is
+not enabled.
+
 =item 601 (Invalid MIME Type)
 
 You specified a C<content_type> argument that was blank, not a valid
@@ -3674,6 +3752,9 @@ you did not set the C<comment> parameter.
 =item C<is_private> (boolean) - If set to true, the comment is private, 
 otherwise it is assumed to be public.
 
+=item C<is_markdown> (boolean) - If set to true, the comment has Markdown
+structures, otherwise it is a normal text.
+
 =item C<work_time> (double) - Adds this many hours to the "Hours Worked"
 on the bug. If you are not in the time tracking group, this value will
 be ignored.
@@ -3715,6 +3796,11 @@ You tried to add a private comment, but don't have the necessary rights.
 You tried to add a comment longer than the maximum allowed length
 (65,535 characters).
 
+=item 140 (Markdown Disabled)
+
+You tried to set the C<is_markdown> flag to true but the Markdown feature
+is not enabled.
+
 =back
 
 =item B<History>
@@ -3736,6 +3822,8 @@ purposes if you wish.
 code of 32000.
 
 =item REST API call added in Bugzilla B<5.0>.
+
+=item C<is_markdown> option added in Bugzilla B<5.0>.
 
 =back
 

@@ -32,6 +32,7 @@ use DBD::Pg;
 # This module extends the DB interface via inheritance
 use parent qw(Bugzilla::DB);
 
+use constant ISOLATION_LEVEL => 'SERIALIZABLE';
 use constant BLOB_TYPE => { pg_type => DBD::Pg::PG_BYTEA };
 
 sub new {

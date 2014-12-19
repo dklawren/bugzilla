@@ -59,9 +59,6 @@ maintainer
     responsible for maintaining this Bugzilla installation.
     The address need not be that of a valid Bugzilla account.
 
-docs_urlbase
-    The URL that is the common initial leading part of all Bugzilla documentation URLs. It may be an absolute URL, or a URL relative to the :param:`urlbase` parameter. Leave this empty to suppress links to the documentation. ``%lang%`` will be replaced by user's preferred language (if documentation is available in that language).
-
 utf8
     Use UTF-8 (Unicode) encoding for all text in Bugzilla. Installations where
     this parameter is set to :paramval:`off` should set it to :paramval:`on` only
@@ -336,42 +333,6 @@ defaultopsys
 collapsed_comment_tags
     A comma-separated list of tags which, when applied to comments, will
     cause them to be collapsed by default.
-
-.. _param-dependency-graphs:
-
-Graphs
-======
-
-Bugzilla can draw graphs of bug-dependency relationships, using a tool called
-:file:`dot` (from the `GraphViz project <http://graphviz.org/>`_) or a web
-service called Web Dot. This page allows you to set the location of the binary
-or service. If no Web Dot server or binary is specified, then dependency
-graphs will be disabled.
-
-webdotbase
-    You may set this parameter to any of the following:
-
-    * A complete file path to :command:`dot` (part of GraphViz), which will
-      generate the graphs locally.
-    * A URL prefix pointing to an installation of the Web Dot package, which
-      will generate the graphs remotely.
-    * A blank value, which will disable dependency graphing.
-
-    The default value is blank. We recommend using a local install of
-    :file:`dot`. If you change this value to a web service, make certain that
-    the Web Dot server can read files from your Web Dot directory. On Apache
-    you do this by editing the :file:`.htaccess` file; for other systems the
-    needed measures may vary. You can run :command:`checksetup.pl` to
-    recreate the :file:`.htaccess` file if it has been lost.
-
-font_file
-    You can specify the full path to a TrueType font file which will be used
-    to display text (labels, legends, ...) in charts and graphical reports.
-    To support as many languages as possible, we recommend to specify a
-    TrueType font such as Unifont which supports all printable characters in
-    the Basic Multilingual Plane. If you leave this parameter empty, a default
-    font will be used, but its support is limited to English characters only
-    and so other characters will be displayed incorrectly. 
 
 .. _param-group-security:
 

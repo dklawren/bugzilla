@@ -50,6 +50,8 @@ matrix:
 
 before_install:
   - git clone https://github.com/dklawren/qa.git -b master qa
+  - sudo sysctl -w kernel.shmmax=268435456
+  - sudo sysctl -w kernel.shmall=268435456
 
 install: true
 

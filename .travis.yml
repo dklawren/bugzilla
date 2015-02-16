@@ -57,8 +57,7 @@ install: true
 
 before_script:
   - mysql -u root mysql -e "GRANT ALL PRIVILEGES ON *.* TO bugs@localhost IDENTIFIED BY 'bugs'; FLUSH PRIVILEGES;"
-  - psql -c "create user bugs CREATEDB;" -U postgres
-  - psql -c "create database travis_ci_test;" -U postgres
+  - psql -c "CREATE USER bugs WITH PASSWORD 'bugs' CREATEDB;" -U postgres
 
 script: ./qa/travis.sh
 

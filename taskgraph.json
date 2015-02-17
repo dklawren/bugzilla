@@ -25,9 +25,16 @@
         "extra": {
           "treeherder": {
             "machine": {
-              "platform": "taskcluster"
+              "platform": "master"
             },
             "symbol": "San"
+          }
+        },
+        "artifacts": {
+          "pubic/runtests.log": {
+            "type": "file",
+            "path": "/runtests.log",
+            "expires": "2016-02-17T17:33:38.806Z"
           }
         }
       }
@@ -51,10 +58,17 @@
         "extra": {
           "treeherder": {
             "machine": {
-              "platform": "taskcluster"
+              "platform": "master"
             },
             "symbol": "Doc"
           }
+        },
+        "artifacts": {
+            "pubic/runtests.log": {
+                "type": "file",
+                "path": "/runtests.log",
+                "expires": "2016-02-17T17:33:38.806Z"
+            }
         }
       }
     },
@@ -71,23 +85,29 @@
           "image": "dklawren/docker-bugzilla",
           "command": ["/runtests.sh"],
           "env": {
-            "CI": true,
             "TEST_SUITE": "webservices"
           }
         },
         "extra": {
           "treeherder": {
             "machine": {
-              "platform": "taskcluster"
+              "platform": "master"
             },
             "symbol": "API"
+          }
+        },
+        "artifacts": {
+          "pubic/runtests.log": {
+            "type": "file",
+            "path": "/runtests.log",
+            "expires": "2016-02-17T17:33:38.806Z"
           }
         }
       }
     },
     {
       "reruns": 3,
-      "maxRunTime": 3000,
+      "maxRunTime": 7200,
       "task": {
         "metadata": {
           "name": "Selenium Tests"
@@ -104,9 +124,16 @@
         "extra": {
           "treeherder": {
             "machine": {
-              "platform": "taskcluster"
+              "platform": "master"
             },
             "symbol": "Sel"
+          }
+        },
+        "artifacts": {
+          "pubic/runtests.log": {
+            "type": "file",
+            "path": "/runtests.log",
+            "expires": "2016-02-17T17:33:38.806Z"
           }
         }
       }

@@ -24,6 +24,9 @@
         },
         "extra": {
           "treeherder": {
+            "machine": {
+              "platform": "taskcluster"
+            },
             "symbol": "San"
           }
         }
@@ -47,6 +50,9 @@
         },
         "extra": {
           "treeherder": {
+            "machine": {
+              "platform": "taskcluster"
+            },
             "symbol": "Doc"
           }
         }
@@ -71,6 +77,9 @@
         },
         "extra": {
           "treeherder": {
+            "machine": {
+              "platform": "taskcluster"
+            },
             "symbol": "API"
           }
         }
@@ -94,6 +103,9 @@
         },
         "extra": {
           "treeherder": {
+            "machine": {
+              "platform": "taskcluster"
+            },
             "symbol": "Sel"
           }
         }

@@ -3,7 +3,7 @@
     "name": "Bugzilla Task Graph",
     "description": "A suite of tests to check the quality of the Bugzilla codebase.",
     "owner": "dlawrence@mozilla.com",
-    "source": "https://raw.githubusercontent.com//dklawren/bugzilla/master/taskgraph.json"
+    "source": "https://raw.githubusercontent.com/dklawren/bugzilla/master/taskgraph.json"
   },
   "tasks": [
     {

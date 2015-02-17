@@ -8,7 +8,7 @@
   "tasks": [
     {
       "reruns": 3,
-      "maxRunTime: 3000,
+      "maxRunTime": 3000,
       "task": {
         "metadata": {
           "name": "Basic Sanity Tests"
@@ -31,7 +31,7 @@
     },
     {
       "reruns": 3,
-      "maxRunTime: 3000,
+      "maxRunTime": 3000,
       "task": {
         "metadata": {
           "name": "Documentation Build Test"
@@ -54,7 +54,7 @@
     },
     {
       "reruns": 3,
-      "maxRunTime: 3000,
+      "maxRunTime": 3000,
       "task": {
         "metadata": {
           "name": "WebService API Tests"
@@ -78,7 +78,7 @@
     },
     {
       "reruns": 3,
-      "maxRunTime: 3000,
+      "maxRunTime": 3000,
       "task": {
         "metadata": {
           "name": "Selenium Tests"

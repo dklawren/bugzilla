@@ -17,10 +17,10 @@
         "workerType": "gaia",
         "payload": {
           "image": "dklawren/docker-bugzilla",
-          "command": ["/runtests.sh"]
-        },
-        "env": {
-          "TEST_SUITE": "sanity"
+          "command": ["/runtests.sh"],
+          "env": {
+            "TEST_SUITE": "sanity"
+          }
         },
         "extra": {
           "treeherder": {
@@ -40,10 +40,10 @@
         "workerType": "gaia",
         "payload": {
           "image": "dklawren/docker-bugzilla",
-          "command": ["/runtests.sh"]
-        },
-        "env": {
-          "TEST_SUITE": "docs"
+          "command": ["/runtests.sh"],
+          "env": {
+            "TEST_SUITE": "docs"
+          }
         },
         "extra": {
           "treeherder": {
@@ -63,11 +63,11 @@
         "workerType": "gaia",
         "payload": {
           "image": "dklawren/docker-bugzilla",
-          "command": ["/runtests.sh"]
-        },
-        "env": {
-          "CI": true,
-          "TEST_SUITE": "webservices"
+          "command": ["/runtests.sh"],
+          "env": {
+            "CI": true,
+            "TEST_SUITE": "webservices"
+          }
         },
         "extra": {
           "treeherder": {
@@ -87,10 +87,10 @@
         "workerType": "gaia",
         "payload": {
           "image": "dklawren/docker-bugzilla",
-          "command": ["/runtests.sh"]
-        },
-        "env": {
-          "TEST_SUITE": "selenium"
+          "command": ["/runtests.sh"],
+          "env": {
+            "TEST_SUITE": "selenium"
+          }
         },
         "extra": {
           "treeherder": {

@@ -1,0 +1,103 @@
+{
+  "metadata": {
+    "name": "Bugzilla Task Graph",
+    "description": "A suite of tests to check the quality of the Bugzilla codebase.",
+    "owner": "dlawrence@mozilla.com",
+    "source": "https://raw.githubusercontent.com//dklawren/bugzilla/master/taskgraph.json"
+  },
+  "tasks": [
+    {
+      "reruns": 3,
+      "maxRunTime: 3000,
+      "task": {
+        "metadata": {
+          "name": "Basic Sanity Tests"
+        },
+        "provisionerId": "aws-provisioner",
+        "workerType": "gaia",
+        "payload": {
+          "image": "dklawren/docker-bugzilla",
+          "command": ["/runtests.sh"]
+        },
+        "env": {
+          "TEST_SUITE": "sanity"
+        },
+        "extra": {
+          "treeherder": {
+            "symbol": "San"
+          }
+        }
+      }
+    },
+    {
+      "reruns": 3,
+      "maxRunTime: 3000,
+      "task": {
+        "metadata": {
+          "name": "Documentation Build Test"
+        },
+        "provisionerId": "aws-provisioner",
+        "workerType": "gaia",
+        "payload": {
+          "image": "dklawren/docker-bugzilla",
+          "command": ["/runtests.sh"]
+        },
+        "env": {
+          "TEST_SUITE": "docs"
+        },
+        "extra": {
+          "treeherder": {
+            "symbol": "Doc"
+          }
+        }
+      }
+    },
+    {
+      "reruns": 3,
+      "maxRunTime: 3000,
+      "task": {
+        "metadata": {
+          "name": "WebService API Tests"
+        },
+        "provisionerId": "aws-provisioner",
+        "workerType": "gaia",
+        "payload": {
+          "image": "dklawren/docker-bugzilla",
+          "command": ["/runtests.sh"]
+        },
+        "env": {
+          "CI": true,
+          "TEST_SUITE": "webservices"
+        },
+        "extra": {
+          "treeherder": {
+            "symbol": "API"
+          }
+        }
+      }
+    },
+    {
+      "reruns": 3,
+      "maxRunTime: 3000,
+      "task": {
+        "metadata": {
+          "name": "Selenium Tests"
+        },
+        "provisionerId": "aws-provisioner",
+        "workerType": "gaia",
+        "payload": {
+          "image": "dklawren/docker-bugzilla",
+          "command": ["/runtests.sh"]
+        },
+        "env": {
+          "TEST_SUITE": "selenium"
+        },
+        "extra": {
+          "treeherder": {
+            "symbol": "Sel"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -19,8 +19,14 @@
           "image": "dklawren/docker-bugzilla",
           "command": ["/runtests.sh"],
           "env": {
-            "CI": true,
             "TEST_SUITE": "sanity"
+          },
+          "artifacts": {
+            "pubic/runtests.log": {
+              "type": "file",
+              "path": "/runtests.log",
+              "expires": "2016-02-17T17:33:38.806Z"
+            }
           }
         },
         "extra": {
@@ -29,13 +35,6 @@
               "platform": "master"
             },
             "symbol": "San"
-          }
-        },
-        "artifacts": {
-          "pubic/runtests.log": {
-            "type": "file",
-            "path": "/runtests.log",
-            "expires": "2016-02-17T17:33:38.806Z"
           }
         }
       }
@@ -53,8 +52,14 @@
           "image": "dklawren/docker-bugzilla",
           "command": ["/runtests.sh"],
           "env": {
-            "CI": true,
             "TEST_SUITE": "docs"
+          },
+          "artifacts": {
+            "pubic/runtests.log": {
+              "type": "file",
+              "path": "/runtests.log",
+              "expires": "2016-02-17T17:33:38.806Z"
+            }
           }
         },
         "extra": {
@@ -64,13 +69,6 @@
             },
             "symbol": "Doc"
           }
-        },
-        "artifacts": {
-            "pubic/runtests.log": {
-                "type": "file",
-                "path": "/runtests.log",
-                "expires": "2016-02-17T17:33:38.806Z"
-            }
         }
       }
     },
@@ -87,8 +85,14 @@
           "image": "dklawren/docker-bugzilla",
           "command": ["/runtests.sh"],
           "env": {
-            "CI": true,
             "TEST_SUITE": "webservices"
+          },
+          "artifacts": {
+            "pubic/runtests.log": {
+              "type": "file",
+              "path": "/runtests.log",
+              "expires": "2016-02-17T17:33:38.806Z"
+            }
           }
         },
         "extra": {
@@ -97,13 +101,6 @@
               "platform": "master"
             },
             "symbol": "API"
-          }
-        },
-        "artifacts": {
-          "pubic/runtests.log": {
-            "type": "file",
-            "path": "/runtests.log",
-            "expires": "2016-02-17T17:33:38.806Z"
           }
         }
       }
@@ -121,8 +118,14 @@
           "image": "dklawren/docker-bugzilla",
           "command": ["/runtests.sh"],
           "env": {
-            "CI": true,
             "TEST_SUITE": "selenium"
+          },
+          "artifacts": {
+            "pubic/runtests.log": {
+              "type": "file",
+              "path": "/runtests.log",
+              "expires": "2016-02-17T17:33:38.806Z"
+            }
           }
         },
         "extra": {
@@ -131,13 +134,6 @@
               "platform": "master"
             },
             "symbol": "Sel"
-          }
-        },
-        "artifacts": {
-          "pubic/runtests.log": {
-            "type": "file",
-            "path": "/runtests.log",
-            "expires": "2016-02-17T17:33:38.806Z"
           }
         }
       }

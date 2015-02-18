@@ -3,7 +3,7 @@
     "name": "Bugzilla Task Graph",
     "description": "A suite of tests to check the quality of the Bugzilla codebase.",
     "owner": "dlawrence@mozilla.com",
-    "source": "https://raw.githubusercontent.com/dklawren/bugzilla/master/taskgraph.json"
+    "source": "https://raw.githubusercontent.com/dklawren/bugzilla/taskcluster/taskgraph.json"
   },
   "tasks": [
     {
@@ -25,7 +25,7 @@
         "extra": {
           "treeherder": {
             "machine": {
-              "platform": "master"
+              "platform": "taskcluster"
             },
             "symbol": "San"
           }
@@ -58,7 +58,7 @@
         "extra": {
           "treeherder": {
             "machine": {
-              "platform": "master"
+              "platform": "taskcluster"
             },
             "symbol": "Doc"
           }
@@ -91,7 +91,7 @@
         "extra": {
           "treeherder": {
             "machine": {
-              "platform": "master"
+              "platform": "taskcluster"
             },
             "symbol": "API"
           }
@@ -124,7 +124,7 @@
         "extra": {
           "treeherder": {
             "machine": {
-              "platform": "master"
+              "platform": "taskcluster"
             },
             "symbol": "Sel"
           }

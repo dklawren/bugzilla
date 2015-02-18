@@ -19,13 +19,14 @@
           "image": "dklawren/docker-bugzilla",
           "command": ["/runtests.sh"],
           "env": {
+            "CI": true,
             "TEST_SUITE": "sanity"
           }
         },
         "extra": {
           "treeherder": {
             "machine": {
-              "platform": "taskcluster"
+              "platform": "master"
             },
             "symbol": "San"
           }
@@ -52,13 +53,14 @@
           "image": "dklawren/docker-bugzilla",
           "command": ["/runtests.sh"],
           "env": {
+            "CI": true,
             "TEST_SUITE": "docs"
           }
         },
         "extra": {
           "treeherder": {
             "machine": {
-              "platform": "taskcluster"
+              "platform": "master"
             },
             "symbol": "Doc"
           }
@@ -85,13 +87,14 @@
           "image": "dklawren/docker-bugzilla",
           "command": ["/runtests.sh"],
           "env": {
+            "CI": true,
             "TEST_SUITE": "webservices"
           }
         },
         "extra": {
           "treeherder": {
             "machine": {
-              "platform": "taskcluster"
+              "platform": "master"
             },
             "symbol": "API"
           }
@@ -118,13 +121,14 @@
           "image": "dklawren/docker-bugzilla",
           "command": ["/runtests.sh"],
           "env": {
+            "CI": true,
             "TEST_SUITE": "selenium"
           }
         },
         "extra": {
           "treeherder": {
             "machine": {
-              "platform": "taskcluster"
+              "platform": "master"
             },
             "symbol": "Sel"
           }

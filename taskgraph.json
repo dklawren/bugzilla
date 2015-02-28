@@ -3,7 +3,7 @@
     "name": "Bugzilla Task Graph",
     "description": "A suite of tests to check the quality of the Bugzilla codebase.",
     "owner": "dlawrence@mozilla.com",
-    "source": "https://raw.githubusercontent.com//dklawren/bugzilla/master/taskgraph.json"
+    "source": "https://raw.githubusercontent.com/dklawren/bugzilla/master/taskgraph.json"
   },
   "tasks": [
     {
@@ -17,13 +17,23 @@
         "workerType": "gaia",
         "payload": {
           "image": "dklawren/docker-bugzilla",
-          "command": ["/runtests.sh"]
-        },
-        "env": {
-          "TEST_SUITE": "sanity"
+          "command": ["/runtests.sh"],
+          "env": {
+            "TEST_SUITE": "sanity"
+          },
+          "artifacts": {
+            "public/runtests_log": {
+              "type": "file",
+              "path": "/runtests.log",
+              "expires": "2016-02-17T17:33:38.806Z"
+            }
+          }
         },
         "extra": {
           "treeherder": {
+            "machine": {
+              "platform": "master"
+            },
             "symbol": "San"
           }
         }
@@ -40,13 +50,23 @@
         "workerType": "gaia",
         "payload": {
           "image": "dklawren/docker-bugzilla",
-          "command": ["/runtests.sh"]
-        },
-        "env": {
-          "TEST_SUITE": "docs"
+          "command": ["/runtests.sh"],
+          "env": {
+            "TEST_SUITE": "docs"
+          },
+          "artifacts": {
+            "public/runtests_log": {
+              "type": "file",
+              "path": "/runtests.log",
+              "expires": "2016-02-17T17:33:38.806Z"
+            }
+          }
         },
         "extra": {
           "treeherder": {
+            "machine": {
+              "platform": "master"
+            },
             "symbol": "Doc"
           }
         }
@@ -54,23 +74,37 @@
     },
     {
       "reruns": 3,
-      "maxRunTime": 3000,
+      "maxRunTime": 7200,
       "task": {
         "metadata": {
-          "name": "WebService API Tests"
+          "name": "WebService API Tests (MySQL)"
         },
         "provisionerId": "aws-provisioner",
         "workerType": "gaia",
         "payload": {
           "image": "dklawren/docker-bugzilla",
-          "command": ["/runtests.sh"]
-        },
-        "env": {
-          "CI": true,
-          "TEST_SUITE": "webservices"
+          "command": ["/runtests.sh"],
+          "env": {
+            "TEST_SUITE": "webservices"
+          },
+          "artifacts": {
+            "public/runtests_log": {
+              "type": "file",
+              "path": "/runtests.log",
+              "expires": "2016-02-17T17:33:38.806Z"
+            },
+            "public/httpd_error_log": {
+              "type": "file",
+              "path": "/var/log/httpd/error_log",
+              "expires": "2016-02-17T17:33:38.806Z"
+            }
+          }
         },
         "extra": {
           "treeherder": {
+            "machine": {
+              "platform": "master"
+            },
             "symbol": "API"
           }
         }
@@ -78,23 +112,114 @@
     },
     {
       "reruns": 3,
-      "maxRunTime": 3000,
+      "maxRunTime": 7200,
       "task": {
         "metadata": {
-          "name": "Selenium Tests"
+          "name": "Selenium Tests (MySQL)"
         },
         "provisionerId": "aws-provisioner",
         "workerType": "gaia",
         "payload": {
           "image": "dklawren/docker-bugzilla",
-          "command": ["/runtests.sh"]
-        },
-        "env": {
-          "TEST_SUITE": "selenium"
+          "command": ["/runtests.sh"],
+          "env": {
+            "TEST_SUITE": "selenium"
+          },
+          "artifacts": {
+            "public/runtests_log": {
+              "type": "file",
+              "path": "/runtests.log",
+              "expires": "2016-02-17T17:33:38.806Z"
+            },
+            "public/httpd_error_log": {
+              "type": "file",
+              "path": "/var/log/httpd/error_log",
+              "expires": "2016-02-17T17:33:38.806Z"
+            }
+          }
         },
         "extra": {
           "treeherder": {
+            "machine": {
+              "platform": "master"
+            },
             "symbol": "Sel"
+          }
+        }
+      }
+    },
+    {
+      "reruns": 3,
+      "maxRunTime": 7200,
+      "task": {
+        "metadata": {
+          "name": "WebService API Tests (Pg)"
+        },
+        "provisionerId": "aws-provisioner",
+        "workerType": "gaia",
+        "payload": {
+          "image": "dklawren/docker-bugzilla:pgsql",
+          "command": ["/runtests.sh"],
+          "env": {
+            "TEST_SUITE": "webservices"
+          },
+          "artifacts": {
+            "public/runtests_log": {
+              "type": "file",
+              "path": "/runtests.log",
+              "expires": "2016-02-17T17:33:38.806Z"
+            },
+            "public/httpd_error_log": {
+              "type": "file",
+              "path": "/var/log/httpd/error_log",
+              "expires": "2016-02-17T17:33:38.806Z"
+            }
+          }
+        },
+        "extra": {
+          "treeherder": {
+            "machine": {
+              "platform": "master"
+            },
+            "symbol": "API-Pg"
+          }
+        }
+      }
+    },
+    {
+      "reruns": 3,
+      "maxRunTime": 7200,
+      "task": {
+        "metadata": {
+          "name": "Selenium Tests (Pg)"
+        },
+        "provisionerId": "aws-provisioner",
+        "workerType": "gaia",
+        "payload": {
+          "image": "dklawren/docker-bugzilla:pgsql",
+          "command": ["/runtests.sh"],
+          "env": {
+            "TEST_SUITE": "selenium"
+          },
+          "artifacts": {
+            "public/runtests_log": {
+              "type": "file",
+              "path": "/runtests.log",
+              "expires": "2016-02-17T17:33:38.806Z"
+            },
+            "public/httpd_error_log": {
+              "type": "file",
+              "path": "/var/log/httpd/error_log",
+              "expires": "2016-02-17T17:33:38.806Z"
+            }
+          }
+        },
+        "extra": {
+          "treeherder": {
+            "machine": {
+              "platform": "master"
+            },
+            "symbol": "Sel-Pg"
           }
         }
       }

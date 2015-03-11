@@ -3296,7 +3296,7 @@ Bugzilla B<4.4>.
 
 =item REST API call added in Bugzilla B<5.0>.
 
-=item C<is_markdown> option added in Bugzilla B<5.0>.
+=item C<is_markdown> option added in Bugzilla B<6.0>.
 
 =back
 
@@ -3488,7 +3488,7 @@ You set the "data" field to an empty string.
 
 =item REST API call added in Bugzilla B<5.0>.
 
-=item C<is_markdown> added in Bugzilla B<5.0>.
+=item C<is_markdown> added in Bugzilla B<6.0>.
 
 =back
 
@@ -3611,7 +3611,7 @@ C<boolean> Set to true if you specifically want a new flag to be created.
 
 =item B<Returns>
 
-A C<hash> with a single field, "attachment". This points to an array of hashes
+A C<hash> with a single field, "attachments". This points to an array of hashes
 with the following fields:
 
 =over
@@ -3835,7 +3835,7 @@ code of 32000.
 
 =item REST API call added in Bugzilla B<5.0>.
 
-=item C<is_markdown> option added in Bugzilla B<5.0>.
+=item C<is_markdown> option added in Bugzilla B<6.0>.
 
 =back
 

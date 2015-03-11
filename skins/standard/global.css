@@ -254,6 +254,23 @@
     }
 /* generic (end) */
 
+#login_form {
+    border: solid;
+    margin: 2em auto;
+    padding: 1em;
+    width: 35em;
+}
+
+#login_form #Bugzilla_login, #login_form #Bugzilla_password,
+#forgot_password #loginname {
+    width: 25em;
+}
+
+#login_form .links {
+    text-align: center;
+    padding: 1em;
+}
+
 /* Links that control whether or not something is visible. */
 a.controller {
     font-size: 115%;
@@ -334,7 +351,20 @@ pre.bz_comment_text, .uneditable_textarea, tbody.file pre {
     white-space: pre;
     overflow: auto;
     display: block;
-    margin-bottom: -1em;
+}
+
+.bz_comment_text table {
+    border-collapse:collapse;
+}
+
+.bz_comment_text table, .bz_comment_text th, .bz_comment_text td {
+    border: 1px solid #969696;
+    padding: 2px;
+}
+
+.bz_comment_text thead, .bz_comment_text tbody {
+     border-top: 2px solid black;
+     border-bottom: 2px solid black;
 }
 
 .bz_comment_user, .bz_comment_time, .bz_comment_number, 

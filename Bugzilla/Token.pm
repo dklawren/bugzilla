@@ -185,9 +185,7 @@ sub issue_hash_token {
 
     my $token = join('*', @args);
     # Wide characters cause Digest::SHA to die.
-    if (Bugzilla->params->{'utf8'}) {
-        utf8::encode($token) if utf8::is_utf8($token);
-    }
+    utf8::encode($token) if utf8::is_utf8($token);
     $token = hmac_sha256_base64($token, Bugzilla->localconfig->{'site_wide_secret'});
     $token =~ s/\+/-/g;
     $token =~ s/\//_/g;
@@ -432,6 +430,9 @@ sub _create_token {
     trick_taint($tokentype);
     trick_taint($eventdata);
 
+    my $is_shadow = Bugzilla->is_shadow_db;
+    $dbh = Bugzilla->switch_to_main_db() if $is_shadow;
+
     $dbh->bz_start_transaction();
 
     my $token = GenerateUniqueToken();
@@ -444,8 +445,10 @@ sub _create_token {
     if (wantarray) {
         my (undef, $token_ts, undef) = GetTokenData($token);
         $token_ts = str2time($token_ts);
+        Bugzilla->switch_to_shadow_db() if $is_shadow;
         return ($token, $token_ts);
     } else {
+        Bugzilla->switch_to_shadow_db() if $is_shadow;
         return $token;
     }
 }

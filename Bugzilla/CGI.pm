@@ -73,7 +73,7 @@ sub new {
     }
 
     # Send appropriate charset
-    $self->charset(Bugzilla->params->{'utf8'} ? 'UTF-8' : '');
+    $self->charset('UTF-8');
 
     # Redirect to urlbase/sslbase if we are not viewing an attachment.
     if ($self->url_is_attachment_base and $script ne 'attachment.cgi') {
@@ -378,9 +378,7 @@ sub param {
         }
 
         # Fix UTF-8-ness of input parameters.
-        if (Bugzilla->params->{'utf8'}) {
-            @result = map { _fix_utf8($_) } @result;
-        }
+        @result = map { _fix_utf8($_) } @result;
 
         return wantarray ? @result : $result[0];
     }
@@ -426,33 +424,17 @@ sub should_set {
 # pass them around to all of the callers. Instead, store them locally here,
 # and then output as required from |header|.
 sub send_cookie {
-    my $self = shift;
-
-    # Move the param list into a hash for easier handling.
-    my %paramhash;
-    my @paramlist;
-    my ($key, $value);
-    while ($key = shift) {
-        $value = shift;
-        $paramhash{$key} = $value;
-    }
+    my ($self, %paramhash) = @_;
 
     # Complain if -value is not given or empty (bug 268146).
-    if (!exists($paramhash{'-value'}) || !$paramhash{'-value'}) {
-        ThrowCodeError('cookies_need_value');
-    }
+    ThrowCodeError('cookies_need_value') unless $paramhash{'-value'};
 
     # Add the default path and the domain in.
     $paramhash{'-path'} = Bugzilla->params->{'cookiepath'};
     $paramhash{'-domain'} = Bugzilla->params->{'cookiedomain'}
         if Bugzilla->params->{'cookiedomain'};
 
-    # Move the param list back into an array for the call to cookie().
-    foreach (keys(%paramhash)) {
-        unshift(@paramlist, $_ => $paramhash{$_});
-    }
-
-    push(@{$self->{'Bugzilla_cookie_list'}}, $self->cookie(@paramlist));
+    push(@{$self->{'Bugzilla_cookie_list'}}, $self->cookie(%paramhash));
 }
 
 # Cookies are removed by setting an expiry date in the past.

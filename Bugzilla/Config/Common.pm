@@ -25,10 +25,10 @@ use parent qw(Exporter);
     qw(check_multi check_numeric check_regexp check_group
        check_sslbase check_priority check_severity check_platform
        check_opsys check_shadowdb check_urlbase check_user_verify_class
-       check_ip check_mail_delivery_method check_notification check_utf8
+       check_ip check_mail_delivery_method check_notification
        check_bug_status check_smtp_auth check_theschwartz_available
        check_maxattachmentsize check_email check_smtp_ssl
-       check_comment_taggers_group check_smtp_server
+       check_comment_taggers_group check_smtp_server check_resolution
 );
 
 # Checking functions for the various values
@@ -115,18 +115,6 @@ sub check_ip {
     return "";
 }
 
-sub check_utf8 {
-    my $utf8 = shift;
-    # You cannot turn off the UTF-8 parameter if you've already converted
-    # your tables to utf-8.
-    my $dbh = Bugzilla->dbh;
-    if ($dbh->isa('Bugzilla::DB::Mysql') && $dbh->bz_db_is_utf8 && !$utf8) {
-        return "You cannot disable UTF-8 support, because your MySQL database"
-               . " is encoded in UTF-8";
-    }
-    return "";
-}
-
 sub check_priority {
     my ($value) = (@_);
     my $legal_priorities = get_legal_field_values('priority');
@@ -172,6 +160,18 @@ sub check_bug_status {
     my @closed_bug_statuses = map {$_->name} closed_bug_statuses();
     if (!grep($_ eq $bug_status, @closed_bug_statuses)) {
         return "Must be a valid closed status: one of " . join(', ', @closed_bug_statuses);
+    }
+    return "";
+}
+
+sub check_resolution {
+    my $resolution = shift;
+    my $resolution_field = Bugzilla::Field->new({ name => 'resolution', cache => 1 });
+    # The empty resolution is included - it represents "no value"
+    my @resolutions = map {$_->name} @{ $resolution_field->legal_values };
+
+    if (!grep($_ eq $resolution, @resolutions)) {
+        return "Must be blank or a valid resolution: one of " . join(', ', @resolutions);
     }
     return "";
 }
@@ -476,6 +476,8 @@ valid group is provided.
 
 =item check_bug_status
 
+=item check_resolution
+
 =item check_shadowdb
 
 =item check_smtp_server
@@ -489,8 +491,6 @@ valid group is provided.
 =item get_param_list
 
 =item check_maxattachmentsize
-
-=item check_utf8
 
 =item check_group
 

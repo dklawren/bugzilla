@@ -151,14 +151,6 @@ sub update_params {
         $new_params{'enablequips'} = $param->{'usequip'} ? 'on' : 'off';
     }
 
-    # Change from old product groups to controls for group_control_map
-    # 2002-10-14 bug 147275 bugreport@peshkin.net
-    if (exists $param->{'usebuggroups'} && 
-        !exists $param->{'makeproductgroups'}) 
-    {
-        $new_params{'makeproductgroups'} = $param->{'usebuggroups'};
-    }
-
     # Modularise auth code
     if (exists $param->{'useLDAP'} && !exists $param->{'loginmethod'}) {
         $new_params{'loginmethod'} = $param->{'useLDAP'} ? "LDAP" : "DB";
@@ -212,6 +204,10 @@ sub update_params {
         $new_params{'search_allow_no_criteria'} = $param->{'specific_search_allow_empty_words'};
     }
 
+    if (exists $param->{'noresolveonopenblockers'}) {
+        $new_params{'resolution_forbidden_with_open_blockers'} = $param->{'noresolveonopenblockers'} ? 'FIXED' : "";
+    }
+
     # --- DEFAULTS FOR NEW PARAMS ---
 
     _load_params unless %params;
@@ -230,8 +226,6 @@ sub update_params {
             }
         }
     }
-
-    $param->{'utf8'} = 1 if $new_install;
 
     # Bug 452525: OR based groups are on by default for new installations
     $param->{'or_groups'} = 1 if $new_install;

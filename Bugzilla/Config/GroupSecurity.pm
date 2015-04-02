@@ -21,12 +21,6 @@ sub get_param_list {
 
   my @param_list = (
   {
-   name => 'makeproductgroups',
-   type => 'b',
-   default => 0
-  },
-
-  {
    name => 'chartgroup',
    type => 's',
    choices => \&_get_all_group_names,
@@ -64,6 +58,14 @@ sub get_param_list {
    choices => \&_get_all_group_names,
    default => 'editbugs',
    checker => \&check_comment_taggers_group
+  },
+
+  {
+   name => 'minor_update_group',
+   type => 's',
+   choices => \&_get_all_group_names,
+   default => '',
+   checker => \&check_group
   },
 
   {

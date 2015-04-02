@@ -54,7 +54,7 @@ sub new {
     # creating tables.
     $dsn .= ";options='-c client_min_messages=warning'";
 
-    my $attrs = { pg_enable_utf8 => Bugzilla->params->{'utf8'} };
+    my $attrs = { pg_enable_utf8 => 1 };
 
     my $self = $class->db_new({ dsn => $dsn, user => $user, 
                                 pass => $pass, attrs => $attrs });
@@ -108,7 +108,7 @@ sub sql_group_concat {
         return "ARRAY_TO_STRING(ARRAY_AGG($text$order_by), $separator)";
     }
 
-    return "STRING_AGG($text, $separator$order_by)";
+    return "STRING_AGG(${text}::text, $separator${order_by}::text)"
 }
 
 sub sql_istring {

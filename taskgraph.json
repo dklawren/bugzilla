@@ -31,9 +31,9 @@
         },
         "extra": {
           "treeherder": {
-            "productName": "taskcluster",
-            "groupName": "taskcluster",
-            "groupSymbol": "taskcluster",
+            "machine" : {
+              "platform": "linux64"
+            },
             "symbol": "San"
           }
         }
@@ -64,9 +64,9 @@
         },
         "extra": {
           "treeherder": {
-            "productName": "taskcluster",
-            "groupName": "taskcluster",
-            "groupSymbol": "taskcluster",
+            "machine" : {
+              "platform": "linux64"
+            },
             "symbol": "Doc"
           }
         }
@@ -102,9 +102,9 @@
         },
         "extra": {
           "treeherder": {
-            "productName": "taskcluster",
-            "groupName": "taskcluster",
-            "groupSymbol": "taskcluster",
+            "machine" : {
+              "platform": "linux64"
+            },
             "symbol": "API"
           }
         }
@@ -145,9 +145,9 @@
         },
         "extra": {
           "treeherder": {
-            "productName": "taskcluster",
-            "groupName": "taskcluster",
-            "groupSymbol": "taskcluster",
+            "machine" : {
+              "platform": "linux64"
+            },
             "symbol": "Sel"
           }
         }
@@ -183,9 +183,9 @@
         },
         "extra": {
           "treeherder": {
-            "productName": "taskcluster",
-            "groupName": "taskcluster",
-            "groupSymbol": "taskcluster",
+            "machine" : {
+              "platform": "linux64"
+            },
             "symbol": "API-Pg"
           }
         }
@@ -226,9 +226,9 @@
         },
         "extra": {
           "treeherder": {
-            "productName": "taskcluster",
-            "groupName": "taskcluster",
-            "groupSymbol": "taskcluster",
+            "machine" : {
+              "platform": "linux64"
+            },
             "symbol": "Sel-Pg"
           }
         }

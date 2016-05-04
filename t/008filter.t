@@ -15,11 +15,11 @@
 
 # Sample exploit code: '>"><script>alert('Oh dear...')</script>
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib t);
+use lib qw(. lib local/lib/perl5 t);
 
 use Bugzilla::Constants;
 use Support::Templates;
@@ -161,7 +161,7 @@ sub directive_ok {
 
     # Directives
     return 1 if $directive =~ /^(IF|END|UNLESS|FOREACH|PROCESS|INCLUDE|
-                                 BLOCK|USE|ELSE|NEXT|LAST|DEFAULT|
+                                 BLOCK|USE|ELSE|NEXT|LAST|DEFAULT|CALL|
                                  ELSIF|SET|SWITCH|CASE|WHILE|RETURN|STOP|
                                  TRY|CATCH|FINAL|THROW|CLEAR|MACRO|FILTER)/x;
 

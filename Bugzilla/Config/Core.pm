@@ -7,7 +7,7 @@
 
 package Bugzilla::Config::Core;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -34,12 +34,6 @@ use constant get_param_list => (
    type => 't',
    default => '',
    checker => \&check_sslbase
-  },
-
-  {
-   name => 'cookiepath',
-   type => 't',
-   default => '/'
   },
 );
 

@@ -12,6 +12,8 @@
 # serve to show the default.
 
 import sys, os, re
+import os.path
+import shutil
 
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
@@ -44,7 +46,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Bugzilla'
-copyright = u'2014, The Bugzilla Team'
+copyright = u'2016, The Bugzilla Team'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -113,7 +115,7 @@ rst_prolog = """
 .. role:: field
     :class: field
 
-.. |min-perl-ver| replace:: 5.10.1
+.. |min-perl-ver| replace:: 5.14.0
 """
 
 rst_epilog = """
@@ -216,7 +218,7 @@ latex_elements = {
 #'pointsize': '10pt',
 
 # Additional stuff for the LaTeX preamble.
-#'preamble': '',
+'preamble': '\setcounter{tocdepth}{4}',
 }
 
 # Grouping the document tree into LaTeX files. List of tuples
@@ -383,4 +385,55 @@ pdf_fit_background_mode = 'scale'
 # Temporary highlighting of TODO items
 todo_include_todos = True
 
-extlinks = {'bug': ('https://bugzilla.mozilla.org/show_bug.cgi?id=%s', 'bug  ')}
+# The readthedocs.org website cannot access POD.
+on_rtd = os.environ.get('READTHEDOCS', None) == 'True'
+
+if on_rtd:
+    base_api_url = 'https://www.bugzilla.org/docs/tip/en/html/api/'
+else:
+    base_api_url = '../integrating/api/'
+
+extlinks = {'bug': ('https://bugzilla.mozilla.org/show_bug.cgi?id=%s', 'bug  '),
+            'api': (base_api_url + '%s', '')}
+
+# -- Assemble extension documentation ------------------------------------------
+
+# os.getcwd() is docs/$lang/rst
+lang = os.path.basename(os.path.dirname(os.getcwd()))
+
+# This is technically defined in Bugzilla/Constants.pm in Perl, but it's
+# unlikely to change if we use a relative path.
+ext_dir = "../../../extensions"
+
+# Still, check just in case, so if it ever changes, we know
+if (os.path.isdir(ext_dir)):
+    # Clear out old extensions docs
+    for dir in os.listdir("extensions"):
+        # A .gitignore file is required as git doesn't like empty directories
+        if dir == ".gitignore":
+            continue
+
+        shutil.rmtree(os.path.join("extensions", dir))
+
+    # Copy in new copies
+    for ext_name in os.listdir(ext_dir):
+        ext_path = os.path.join(ext_dir, ext_name)
+        # Ignore files in the extensions/ directory (e.g. create.pl)
+        if not os.path.isdir(ext_path):
+            continue
+
+        # Ignore disabled extensions
+        if os.path.isfile(os.path.join(ext_path, "disabled")):
+            continue
+
+        src = os.path.join(ext_path, "docs", lang, "rst")
+
+        # Ignore extensions without rst docs in this language
+        if not os.path.isdir(src):
+            continue
+
+        dst = os.path.join("extensions", ext_name)
+
+        shutil.copytree(src, dst)
+else:
+    print "Warning: Bugzilla extension directory not found: " + ext_dir

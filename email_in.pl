@@ -6,7 +6,7 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -20,7 +20,7 @@ BEGIN {
     chdir dirname($a);
 }
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Data::Dumper;
 use Email::Address;
@@ -466,7 +466,7 @@ sub die_handler {
 
     # If this is inside an eval, then we should just act like...we're
     # in an eval (instead of printing the error and exiting).
-    die(@_) if $^S;
+    die @_ if ($^S // Bugzilla->request_cache->{in_eval});
 
     # We can't depend on the MTA to send an error message, so we have
     # to generate one properly.
@@ -508,10 +508,6 @@ Bugzilla::Hook::process('email_in_after_parse', { fields => $mail_fields });
 my $attachments = delete $mail_fields->{'attachments'};
 
 my $username = $mail_fields->{'reporter'};
-# If emailsuffix is in use, we have to remove it from the email address.
-if (my $suffix = Bugzilla->params->{'emailsuffix'}) {
-    $username =~ s/\Q$suffix\E$//i;
-}
 
 my $user = Bugzilla::User->check($username);
 Bugzilla->set_user($user);

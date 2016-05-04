@@ -7,11 +7,11 @@
 # defined by the Mozilla Public License, v. 2.0.
 
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::Constants;
@@ -27,7 +27,6 @@ local our $vars = {};
 
 sub LoadTemplate {
     my $action = shift;
-    my $cgi = Bugzilla->cgi;
     my $template = Bugzilla->template;
 
     $vars->{'classifications'} = [Bugzilla::Classification->get_all]
@@ -38,7 +37,6 @@ sub LoadTemplate {
 
     $action =~ /(\w+)/;
     $action = $1;
-    print $cgi->header();
     $template->process("admin/classifications/$action.html.tmpl", $vars)
       || ThrowTemplateError($template->error());
     exit;
@@ -198,7 +196,7 @@ if ($action eq 'reclassify') {
     if (defined $cgi->param('add_products')) {
         check_token_data($token, 'reclassify_classifications');
         if (defined $cgi->param('prodlist')) {
-            foreach my $prod ($cgi->param("prodlist")) {
+            foreach my $prod ($cgi->multi_param("prodlist")) {
                 trick_taint($prod);
                 $sth->execute($classification->id, $prod);
                 push @names, $prod;
@@ -208,7 +206,7 @@ if ($action eq 'reclassify') {
     } elsif (defined $cgi->param('remove_products')) {
         check_token_data($token, 'reclassify_classifications');
         if (defined $cgi->param('myprodlist')) {
-            foreach my $prod ($cgi->param("myprodlist")) {
+            foreach my $prod ($cgi->multi_param('myprodlist')) {
                 trick_taint($prod);
                 $sth->execute(1, $prod);
                 push @names, $prod;

@@ -59,7 +59,6 @@
    style_urls = ['skins/standard/admin.css']
    javascript_urls = ['js/util.js', 'js/field.js', 'js/TUI.js']
    doc_section = current_tab.doc_section
-   yui = ['autocomplete']
  %]
 
 [% WRAPPER global/tabs.html.tmpl
@@ -76,6 +75,10 @@
         In order to confirm your request, we have sent an email to your
         new email address. As a precaution, an email has also been sent
         to your old address allowing you to cancel this change if needed.
+        If you don't receive the email, you can
+        <a href="token.cgi?t=[% email_token FILTER uri %]&amp;a=cxlem">
+        cancel the email address change</a> from here if you wish (especially
+        if you mistyped the new email address).
       </p>
     [% END %]
   </div>

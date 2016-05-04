@@ -12,11 +12,11 @@
 # Check the Bugzilla database schema to ensure no field names conflict
 # with SQL reserved words.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. t lib);
+use lib qw(. lib local/lib/perl5 t);
 use Bugzilla;
 use Bugzilla::DB::Schema;
 

@@ -11,7 +11,7 @@ package Bugzilla::Install::Util;
 # module may require *only* Bugzilla::Constants and built-in
 # perl modules.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -34,6 +34,7 @@ our @EXPORT_OK = qw(
     extension_requirement_packages
     extension_template_directory
     extension_web_directory
+    i_am_persistent
     indicate_progress
     install_string
     include_languages
@@ -81,6 +82,10 @@ sub get_version_and_os {
              perl_ver => sprintf('%vd', $^V),
              os_name  => $os_name,
              os_ver   => $os_details[3] };
+}
+
+sub i_am_persistent {
+    return ($ENV{MOD_PERL} || $ENV{BZ_PLACK}) ? 1 : 0;
 }
 
 sub _extension_paths {
@@ -646,15 +651,8 @@ sub prevent_windows_dialog_boxes {
 
 # This is like request_cache, but it's used only by installation code
 # for checksetup.pl and things like that.
-our $_cache = {};
-sub _cache {
-    # If the normal request_cache is available (which happens any time
-    # after the requirements phase) then we should use that.
-    if (eval { Bugzilla->request_cache; }) {
-        return Bugzilla->request_cache;
-    }
-    return $_cache;
-}
+my $_cache = {};
+sub _cache { return $_cache; }
 
 ###############################
 # Copied from Bugzilla::Util #
@@ -710,6 +708,11 @@ binary, if the binary is in the C<PATH>.
 
 Returns a hash containing information about what version of Bugzilla we're
 running, what perl version we're using, and what OS we're running on.
+
+=item C<i_am_persistent>
+
+Returns true if Bugzilla is running in a persistent environment, such as
+mod_perl or PSGI. Returns false if running in mod_cgi mode.
 
 =item C<get_console_locale>
 

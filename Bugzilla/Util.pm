@@ -7,7 +7,7 @@
 
 package Bugzilla::Util;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -18,7 +18,7 @@ use parent qw(Exporter);
                              i_am_cgi i_am_webservice correct_urlbase remote_ip
                              validate_ip do_ssl_redirect_if_required use_attachbase
                              diff_arrays on_main_db
-                             trim wrap_hard wrap_comment find_wrap_point
+                             trim wrap_hard wrap_comment find_wrap_point wrap_cite
                              format_time validate_date validate_time datetime_from
                              is_7bit_clean bz_crypt generate_random_password
                              validate_email_syntax check_email_syntax clean_text
@@ -49,13 +49,13 @@ sub trick_taint {
 }
 
 sub detaint_natural {
-    my $match = $_[0] =~ /^(\d+)$/;
+    my $match = $_[0] =~ /^(\d+)$/a;
     $_[0] = $match ? int($1) : undef;
     return (defined($_[0]));
 }
 
 sub detaint_signed {
-    my $match = $_[0] =~ /^([-+]?\d+)$/;
+    my $match = $_[0] =~ /^([-+]?\d+)$/a;
     # The "int()" call removes any leading plus sign.
     $_[0] = $match ? int($1) : undef;
     return (defined($_[0]));
@@ -250,29 +250,36 @@ sub i_am_webservice {
 sub do_ssl_redirect_if_required {
     return if !i_am_cgi();
     return if !Bugzilla->params->{'ssl_redirect'};
+    return if !Bugzilla->params->{'sslbase'};
 
-    my $sslbase = Bugzilla->params->{'sslbase'};
-    
     # If we're already running under SSL, never redirect.
+    if (Bugzilla->params->{'inbound_proxies'}
+        && uc($ENV{HTTP_X_FORWARDED_PROTO} || '') eq 'HTTPS') {
+        return;
+    }
     return if uc($ENV{HTTPS} || '') eq 'ON';
-    # Never redirect if there isn't an sslbase.
-    return if !$sslbase;
-    Bugzilla->cgi->redirect_to_https();
+
+    # If called from Bugzilla::CGI->new itself, use the newly created
+    # CGI object, to avoid deep recursions.
+    my $cgi = shift || Bugzilla->cgi;
+    $cgi->redirect_to_https();
 }
 
 sub correct_urlbase {
-    my $ssl = Bugzilla->params->{'ssl_redirect'};
     my $urlbase = Bugzilla->params->{'urlbase'};
     my $sslbase = Bugzilla->params->{'sslbase'};
 
     if (!$sslbase) {
         return $urlbase;
     }
-    elsif ($ssl) {
+    elsif (Bugzilla->params->{'ssl_redirect'}) {
         return $sslbase;
     }
+    # Return what the user currently uses.
+    elsif (Bugzilla->params->{'inbound_proxies'}) {
+        return (uc($ENV{HTTP_X_FORWARDED_PROTO} || '') eq 'HTTPS') ? $sslbase : $urlbase;
+    }
     else {
-        # Return what the user currently uses.
         return (uc($ENV{HTTPS} || '') eq 'ON') ? $sslbase : $urlbase;
     }
 }
@@ -453,6 +460,28 @@ sub wrap_comment {
     }
 
     chomp($wrappedcomment); # Text::Wrap adds an extra newline at the end.
+    return $wrappedcomment;
+}
+
+sub wrap_cite {
+    my ($comment, $cols) = @_;
+    my $wrappedcomment = "";
+
+    # Use 'local', as recommended by Text::Wrap's perldoc.
+    local $Text::Wrap::columns = $cols || COMMENT_COLS;
+    # Make words that are longer than COMMENT_COLS not wrap.
+    local $Text::Wrap::huge    = 'overflow';
+    # Don't mess with tabs.
+    local $Text::Wrap::unexpand = 0;
+
+    foreach my $line (split(/\r\n|\r|\n/, $comment)) {
+      if ($line =~ /^(>+ *)/) {
+        $wrappedcomment .= wrap('', $1, $line) . "\n";
+      } else {
+        $wrappedcomment .= $line . "\n";
+      }
+    }
+    chomp($wrappedcomment); # remove extra newline at the end
     return $wrappedcomment;
 }
 
@@ -661,28 +690,32 @@ sub generate_random_password {
 }
 
 sub validate_email_syntax {
-    my ($addr) = @_;
+    my ($email) = @_;
     my $match = Bugzilla->params->{'emailregexp'};
-    my $email = $addr . Bugzilla->params->{'emailsuffix'};
     # This regexp follows RFC 2822 section 3.4.1.
     my $addr_spec = $Email::Address::addr_spec;
     # RFC 2822 section 2.1 specifies that email addresses must
     # be made of US-ASCII characters only.
     # Email::Address::addr_spec doesn't enforce this.
-    my $ret = ($addr =~ /$match/ && $email !~ /\P{ASCII}/ && $email =~ /^$addr_spec$/);
-    if ($ret) {
+    # We set the max length to 127 to ensure addresses aren't truncated when
+    # inserted into the tokens.eventdata field.
+    if ($email =~ /$match/
+        && $email !~ /\P{ASCII}/
+        && $email =~ /^$addr_spec$/
+        && length($email) <= 127)
+    {
         # We assume these checks to suffice to consider the address untainted.
         trick_taint($_[0]);
+        return 1;
     }
-    return $ret ? 1 : 0;
+    return 0;
 }
 
 sub check_email_syntax {
-    my ($addr) = @_;
+    my ($email) = @_;
 
     unless (validate_email_syntax(@_)) {
-        my $email = $addr . Bugzilla->params->{'emailsuffix'};
-        ThrowUserError('illegal_email_address', { addr => $email });
+        ThrowUserError('illegal_email_address', { email => $email });
     }
 }
 
@@ -695,8 +728,8 @@ sub validate_date {
     if ($ts) {
         $date2 = time2str("%Y-%m-%d", $ts);
 
-        $date =~ s/(\d+)-0*(\d+?)-0*(\d+?)/$1-$2-$3/; 
-        $date2 =~ s/(\d+)-0*(\d+?)-0*(\d+?)/$1-$2-$3/;
+        $date =~ s/(\d+)-0*(\d+?)-0*(\d+?)/$1-$2-$3/a;
+        $date2 =~ s/(\d+)-0*(\d+?)-0*(\d+?)/$1-$2-$3/a;
     }
     my $ret = ($ts && $date eq $date2);
     return $ret ? 1 : 0;
@@ -1237,5 +1270,7 @@ if Bugzilla is currently using the shadowdb or not. Used like:
 =item is_ipv6
 
 =item display_value
+
+=item wrap_cite
 
 =back

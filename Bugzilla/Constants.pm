@@ -7,7 +7,7 @@
 
 package Bugzilla::Constants;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -212,7 +212,7 @@ use constant BUGZILLA_VERSION => "5.1";
 
 # A base link to the current REST Documentation. We place it here
 # as it will need to be updated to whatever the current release is.
-use constant REST_DOC => "http://www.bugzilla.org/docs/tip/en/html/api/";
+use constant REST_DOC => 'https://bugzilla.readthedocs.org/en/latest/api/';
 
 # Location of the remote and local XML files to track new releases.
 use constant REMOTE_FILE => 'http://updates.bugzilla.org/bugzilla-update.xml';
@@ -516,48 +516,15 @@ use constant INSTALLATION_MODE_NON_INTERACTIVE => 1;
 # Data about what we require for different databases.
 use constant DB_MODULE => {
     # MySQL 5.0.15 was the first production 5.0.x release.
-    'mysql' => {db => 'Bugzilla::DB::Mysql', db_version => '5.0.15',
-                dbd => { 
-                    package => 'DBD-mysql',
-                    module  => 'DBD::mysql',
-                    # Disallow development versions
-                    blacklist => ['_'],
-                    # For UTF-8 support. 4.001 makes sure that blobs aren't
-                    # marked as UTF-8.
-                    version => '4.001',
-                },
-                name => 'MySQL'},
-    # Also see Bugzilla::DB::Pg::bz_check_server_version, which has special
-    # code to require DBD::Pg 2.17.2 for PostgreSQL 9 and above.
-    'pg'    => {db => 'Bugzilla::DB::Pg', db_version => '8.03.0000',
-                dbd => {
-                    package => 'DBD-Pg',
-                    module  => 'DBD::Pg',
-                    # 2.7.0 fixes a problem with quoting strings
-                    # containing backslashes in them.
-                    version => '2.7.0',
-                },
-                name => 'PostgreSQL'},
-     'oracle'=> {db => 'Bugzilla::DB::Oracle', db_version => '10.02.0',
-                dbd => {
-                     package => 'DBD-Oracle',
-                     module  => 'DBD::Oracle',
-                     version => '1.19',
-                },
-                name => 'Oracle'},
-     # SQLite 3.6.22 fixes a WHERE clause problem that may affect us.
-    sqlite => {db => 'Bugzilla::DB::Sqlite', db_version => '3.6.22',
-               dbd => {
-                   package => 'DBD-SQLite',
-                   module  => 'DBD::SQLite',
-                   # 1.29 is the version that contains 3.6.22.
-                   version => '1.29',
-               },
-               name => 'SQLite'},
+    mysql   => { db => 'Bugzilla::DB::Mysql',  db_version => '5.0.15',    name => 'MySQL'},
+    pg      => { db => 'Bugzilla::DB::Pg',     db_version => '9.00.0000', name => 'PostgreSQL'},
+    oracle  => { db => 'Bugzilla::DB::Oracle', db_version => '10.02.0',   name => 'Oracle'},
+    # SQLite 3.6.22 fixes a WHERE clause problem that may affect us.
+    sqlite  => { db => 'Bugzilla::DB::Sqlite', db_version => '3.6.22',    name => 'SQLite'},
 };
 
 # True if we're on Win32.
-use constant ON_WINDOWS => ($^O =~ /MSWin32/i) ? 1 : 0;
+use constant ON_WINDOWS => $^O eq 'MSWin32' ? 1 : 0;
 # True if we're using ActiveState Perl (as opposed to Strawberry) on Windows.
 use constant ON_ACTIVESTATE => eval { &Win32::BuildNumber };
 
@@ -685,7 +652,7 @@ sub _bz_locations {
     $libpath = $1;
 
     my ($localconfig, $datadir);
-    if ($project && $project =~ /^(\w+)$/) {
+    if ($project && $project =~ /^([\w-]+)$/) {
         $project = $1;
         $localconfig = "localconfig.$project";
         $datadir = "data/$project";

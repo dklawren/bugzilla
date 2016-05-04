@@ -6,11 +6,11 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::Constants;
@@ -62,11 +62,11 @@ if ($comp_name) {
 }
 
 # If 'categoryAction' is set, it has priority over 'action'.
-if (my ($category_action) = grep { $_ =~ /^categoryAction-(?:\w+)$/ } $cgi->param()) {
+if (my ($category_action) = grep { $_ =~ /^categoryAction-(?:\w+)$/ } $cgi->multi_param()) {
     $category_action =~ s/^categoryAction-//;
 
-    my @inclusions = $cgi->param('inclusions');
-    my @exclusions = $cgi->param('exclusions');
+    my @inclusions = $cgi->multi_param('inclusions');
+    my @exclusions = $cgi->multi_param('exclusions');
     my @categories;
     if ($category_action =~ /^(in|ex)clude$/) {
         if (!$user->in_group('editcomponents') && !$product) {
@@ -93,13 +93,13 @@ if (my ($category_action) = grep { $_ =~ /^categoryAction-(?:\w+)$/ } $cgi->para
         }
     }
     elsif ($category_action eq 'removeInclusion') {
-        my @inclusion_to_remove = $cgi->param('inclusion_to_remove');
+        my @inclusion_to_remove = $cgi->multi_param('inclusion_to_remove');
         foreach my $remove (@inclusion_to_remove) {
             @inclusions = grep { $_ ne $remove } @inclusions;
         }
     }
     elsif ($category_action eq 'removeExclusion') {
-        my @exclusion_to_remove = $cgi->param('exclusion_to_remove');
+        my @exclusion_to_remove = $cgi->multi_param('exclusion_to_remove');
         foreach my $remove (@exclusion_to_remove) {
             @exclusions = grep { $_ ne $remove } @exclusions;
         }
@@ -265,8 +265,8 @@ if ($action eq 'insert') {
     my $is_multiplicable = $cgi->param('is_multiplicable');
     my $grant_group      = $cgi->param('grant_group');
     my $request_group    = $cgi->param('request_group');
-    my @inclusions       = $cgi->param('inclusions');
-    my @exclusions       = $cgi->param('exclusions');
+    my @inclusions       = $cgi->multi_param('inclusions');
+    my @exclusions       = $cgi->multi_param('exclusions');
 
     # Filter inclusion and exclusion lists to products the user can see.
     unless ($user->in_group('editcomponents')) {
@@ -317,8 +317,8 @@ if ($action eq 'update') {
     my $is_multiplicable = $cgi->param('is_multiplicable');
     my $grant_group      = $cgi->param('grant_group');
     my $request_group    = $cgi->param('request_group');
-    my @inclusions       = $cgi->param('inclusions');
-    my @exclusions       = $cgi->param('exclusions');
+    my @inclusions       = $cgi->multi_param('inclusions');
+    my @exclusions       = $cgi->multi_param('exclusions');
 
     my ($flagtype, $can_fully_edit) = $user->check_can_admin_flagtype($flag_id);
     if ($cgi->param('check_clusions') && !$user->in_group('editcomponents')) {
@@ -436,17 +436,30 @@ sub get_products_and_components {
 
     my @products;
     if ($user->in_group('editcomponents')) {
-        @products = Bugzilla::Product->get_all;
+        if (Bugzilla->params->{useclassification}) {
+            # We want products grouped by classifications.
+            @products = map { @{ $_->products } } Bugzilla::Classification->get_all;
+        }
+        else {
+            @products = Bugzilla::Product->get_all;
+        }
     }
     else {
         @products = @{$user->get_products_by_permission('editcomponents')};
+
+        if (Bugzilla->params->{useclassification}) {
+            my %class;
+            push(@{$class{$_->classification_id}}, $_) foreach @products;
+
+            # Let's sort the list by classifications.
+            @products = ();
+            push(@products, @{$class{$_->id}}) foreach Bugzilla::Classification->get_all;
+        }
     }
-    # We require all unique component names.
+
     my %components;
     foreach my $product (@products) {
-        foreach my $component (@{$product->components}) {
-            $components{$component->name} = 1;
-        }
+        $components{$_->name} = 1 foreach @{$product->components};
     }
     $vars->{'products'} = \@products;
     $vars->{'components'} = [sort(keys %components)];

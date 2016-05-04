@@ -7,14 +7,17 @@
 
 package Bugzilla;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
 # We want any compile errors to get to the browser, if possible.
 BEGIN {
-    # This makes sure we're in a CGI.
-    if ($ENV{SERVER_SOFTWARE} && !$ENV{MOD_PERL}) {
+    # This makes sure we're in a CGI. mod_perl doesn't support Carp
+    # and Plack reports errors elsewhere.
+    # We cannot call i_am_persistent() from here as its module is
+    # not loaded yet.
+    if ($ENV{SERVER_SOFTWARE} && !($ENV{MOD_PERL} || $ENV{BZ_PLACK})) {
         require CGI::Carp;
         CGI::Carp->import('fatalsToBrowser');
     }
@@ -31,8 +34,7 @@ use Bugzilla::Extension;
 use Bugzilla::Field;
 use Bugzilla::Flag;
 use Bugzilla::Install::Localconfig qw(read_localconfig);
-use Bugzilla::Install::Requirements qw(OPTIONAL_MODULES);
-use Bugzilla::Install::Util qw(init_console include_languages);
+use Bugzilla::Install::Util qw(init_console include_languages i_am_persistent);
 use Bugzilla::Memcached;
 use Bugzilla::Template;
 use Bugzilla::Token;
@@ -44,6 +46,7 @@ use File::Spec::Functions;
 use DateTime::TimeZone;
 use Date::Parse;
 use Safe;
+use List::Util qw(first);
 
 #####################################################################
 # Constants
@@ -82,11 +85,28 @@ sub init_page {
     }
 
     if (${^TAINT}) {
+        my $path = '';
+        if (ON_WINDOWS) {
+            # On Windows, these paths are tainted, preventing
+            # File::Spec::Win32->tmpdir from using them. But we need
+            # a place to temporary store attachments which are uploaded.
+            foreach my $temp (qw(TMPDIR TMP TEMP WINDIR)) {
+                trick_taint($ENV{$temp}) if $ENV{$temp};
+            }
+            # Some DLLs used by Strawberry Perl are also in c\bin,
+            # see https://rt.cpan.org/Public/Bug/Display.html?id=99104
+            if (!ON_ACTIVESTATE) {
+                my $c_path = $path = dirname($^X);
+                $c_path =~ s/\bperl\b(?=\\bin)/c/;
+                $path .= ";$c_path";
+                trick_taint($path);
+            }
+        }
         # Some environment variables are not taint safe
         delete @::ENV{'PATH', 'IFS', 'CDPATH', 'ENV', 'BASH_ENV'};
         # Some modules throw undefined errors (notably File::Spec::Win32) if
         # PATH is undefined.
-        $ENV{'PATH'} = '';
+        $ENV{'PATH'} = $path;
     }
 
     # Because this function is run live from perl "use" commands of
@@ -111,11 +131,6 @@ sub init_page {
 
     my $script = basename($0);
 
-    # Because of attachment_base, attachment.cgi handles this itself.
-    if ($script ne 'attachment.cgi') {
-        do_ssl_redirect_if_required();
-    }
-
     # If Bugzilla is shut down, do not allow anything to run, just display a
     # message to the user about the downtime and log out.  Scripts listed in 
     # SHUTDOWNHTML_EXEMPT are exempt from this message.
@@ -133,43 +148,46 @@ sub init_page {
         {
             exit;
         }
+        # Plack requires to exit differently.
+        return -1 if $ENV{BZ_PLACK};
+        _shutdown();
+    }
+}
 
-        # For security reasons, log out users when Bugzilla is down.
-        # Bugzilla->login() is required to catch the logincookie, if any.
-        my $user;
-        eval { $user = Bugzilla->login(LOGIN_OPTIONAL); };
-        if ($@) {
-            # The DB is not accessible. Use the default user object.
-            $user = Bugzilla->user;
-            $user->{settings} = {};
-        }
-        my $userid = $user->id;
-        Bugzilla->logout();
+sub _shutdown {
+    # For security reasons, log out users when Bugzilla is down.
+    # Bugzilla->login() is required to catch the logincookie, if any.
+    my $user = eval { Bugzilla->login(LOGIN_OPTIONAL); };
+    if ($@) {
+        # The DB is not accessible. Use the default user object.
+        $user = Bugzilla->user;
+        $user->{settings} = {};
+    }
+    my $userid = $user->id;
+    Bugzilla->logout();
 
-        my $template = Bugzilla->template;
-        my $vars = {};
-        $vars->{'message'} = 'shutdown';
-        $vars->{'userid'} = $userid;
-        # Generate and return a message about the downtime, appropriately
-        # for if we're a command-line script or a CGI script.
-        my $extension;
-        if (i_am_cgi() && (!Bugzilla->cgi->param('ctype')
-                           || Bugzilla->cgi->param('ctype') eq 'html')) {
+    # Generate and return a message about the downtime, appropriately
+    # for if we're a command-line script or a CGI script.
+    my $cgi = Bugzilla->cgi;
+    my $extension = 'txt';
+
+    if (i_am_cgi()) {
+        # Set the HTTP status to 503 when Bugzilla is down to avoid pages
+        # being indexed by search engines.
+        print $cgi->header(-status => 503,
+                           -retry_after => SHUTDOWNHTML_RETRY_AFTER);
+
+        if (!$cgi->param('ctype') || $cgi->param('ctype') eq 'html') {
             $extension = 'html';
         }
-        else {
-            $extension = 'txt';
-        }
-        if (i_am_cgi()) {
-            # Set the HTTP status to 503 when Bugzilla is down to avoid pages
-            # being indexed by search engines.
-            print Bugzilla->cgi->header(-status => 503, 
-                -retry_after => SHUTDOWNHTML_RETRY_AFTER);
-        }
-        $template->process("global/message.$extension.tmpl", $vars)
-            || ThrowTemplateError($template->error);
-        exit;
     }
+
+    my $template = Bugzilla->template;
+    my $vars = { message => 'shutdown', userid => $userid };
+
+    $template->process("global/message.$extension.tmpl", $vars)
+      or ThrowTemplateError($template->error);
+    exit;
 }
 
 #####################################################################
@@ -209,32 +227,80 @@ sub extensions {
     return $cache->{extensions};
 }
 
-sub feature {
-    my ($class, $feature) = @_;
+sub api_server {
+    my $class = shift;
     my $cache = $class->request_cache;
-    return $cache->{feature}->{$feature}
-        if exists $cache->{feature}->{$feature};
+    return $cache->{api_server} if defined $cache->{api_server};
+    require Bugzilla::API::Server;
+    $cache->{api_server} = Bugzilla::API::Server->server;
+    if (my $load_error = $cache->{api_server}->load_error) {
+        my @error_params = ($load_error->{error}, $load_error->{vars});
+        ThrowCodeError(@error_params) if $load_error->{type} eq 'code';
+        ThrowUserError(@error_params) if $load_error->{type} eq 'user';
+    }
+    return $cache->{api_server};
+}
 
-    my $feature_map = $cache->{feature_map};
-    if (!$feature_map) {
-        foreach my $package (@{ OPTIONAL_MODULES() }) {
-            foreach my $f (@{ $package->{feature} }) {
-                $feature_map->{$f} ||= [];
-                push(@{ $feature_map->{$f} }, $package->{module});
+use constant _CAN_HAS_FEATURE => eval {
+        require CPAN::Meta;
+        require Module::Runtime;
+        require CPAN::Meta::Check;
+        Module::Runtime->import(qw(require_module));
+        CPAN::Meta::Check->import(qw(verify_dependencies));
+        1;
+    };
+
+sub feature {
+    my ($class, $feature_name) = @_;
+    return 0 unless _CAN_HAS_FEATURE;
+    return unless $class->has_feature($feature_name);
+
+    my $cache = $class->request_cache;
+    my $feature = $cache->{feature_map}{$feature_name};
+    # Bugzilla expects this will also load all the modules.. so we have to do that.
+    # Later we should put a deprecation warning here, and favor calling has_feature().
+
+    return 1 if $cache->{feature_loaded}{$feature_name};
+    my @modules = $feature->requirements_for('runtime', 'requires')->required_modules;
+    require_module($_) foreach @modules;
+    $cache->{feature_loaded}{$feature_name} = 1;
+    return 1;
+}
+
+sub has_feature {
+    my ($class, $feature_name) = @_;
+
+    return 0 unless _CAN_HAS_FEATURE;
+
+    my $cache = $class->request_cache;
+    return $cache->{feature}->{$feature_name}
+        if exists $cache->{feature}->{$feature_name};
+
+    my $dir = bz_locations()->{libpath};
+    my $feature_map = $cache->{feature_map} //= do {
+        my @meta_json = map { File::Spec->catfile($dir, $_) } qw( MYMETA.json META.json );
+        my $file = first { -f $_ } @meta_json;
+        my %map;
+        if ($file) {
+            open my $meta_fh, '<', $file or die "unable to open $file: $!";
+            my $str = do { local $/ = undef; scalar <$meta_fh> };
+            trick_taint($str);
+            close $meta_fh;
+
+            my $meta = CPAN::Meta->load_json_string($str);
+
+            foreach my $feature ($meta->features) {
+                $map{$feature->identifier} = $feature->prereqs;
             }
         }
-        $cache->{feature_map} = $feature_map;
-    }
 
-    if (!$feature_map->{$feature}) {
-        ThrowCodeError('invalid_feature', { feature => $feature });
-    }
+        \%map;
+    };
 
-    my $success = 1;
-    foreach my $module (@{ $feature_map->{$feature} }) {
-        eval "require $module" or $success = 0;
-    }
-    $cache->{feature}->{$feature} = $success;
+    ThrowCodeError('invalid_feature', { feature => $feature_name }) if !$feature_map->{$feature_name};
+    my $success = !verify_dependencies($feature_map->{$feature_name}, 'runtime', 'requires');
+
+    $cache->{feature}{$feature_name} = $success;
     return $success;
 }
 
@@ -432,7 +498,6 @@ sub error_mode {
         $class->request_cache->{error_mode} = $newval;
     }
 
-    # XXX - Once we require Perl 5.10.1, this test can be replaced by //.
     if (exists $class->request_cache->{error_mode}) {
         return $class->request_cache->{error_mode};
     }
@@ -481,7 +546,6 @@ sub usage_mode {
         $class->request_cache->{usage_mode} = $newval;
     }
 
-    # XXX - Once we require Perl 5.10.1, this test can be replaced by //.
     if (exists $class->request_cache->{usage_mode}) {
         return $class->request_cache->{usage_mode};
     }
@@ -614,43 +678,21 @@ sub local_timezone {
              ||= DateTime::TimeZone->new(name => 'local');
 }
 
-# This creates the request cache for non-mod_perl installations.
-# This is identical to Install::Util::_cache so that things loaded
-# into Install::Util::_cache during installation can be read out
-# of request_cache later in installation.
-our $_request_cache = $Bugzilla::Install::Util::_cache;
+my $request_cache = Bugzilla::Install::Util::_cache();
 
-sub request_cache {
-    if ($ENV{MOD_PERL}) {
-        require Apache2::RequestUtil;
-        # Sometimes (for example, during mod_perl.pl), the request
-        # object isn't available, and we should use $_request_cache instead.
-        my $request = eval { Apache2::RequestUtil->request };
-        return $_request_cache if !$request;
-        return $request->pnotes();
-    }
-    return $_request_cache;
-}
+sub request_cache { return $request_cache }
 
 sub clear_request_cache {
-    $_request_cache = {};
-    if ($ENV{MOD_PERL}) {
-        require Apache2::RequestUtil;
-        my $request = eval { Apache2::RequestUtil->request };
-        if ($request) {
-            my $pnotes = $request->pnotes;
-            delete @$pnotes{(keys %$pnotes)};
-        }
-    }
+    %$request_cache = ();
 }
 
 # This is a per-process cache.  Under mod_cgi it's identical to the
 # request_cache.  When using mod_perl, items in this cache live until the
 # worker process is terminated.
-our $_process_cache = {};
+my $process_cache = {};
 
 sub process_cache {
-    return $_process_cache;
+    return $process_cache;
 }
 
 # This is a memcached wrapper, which provides cross-process and cross-system
@@ -684,11 +726,13 @@ sub _cleanup {
 }
 
 sub END {
-    # Bugzilla.pm cannot compile in mod_perl.pl if this runs.
-    _cleanup() unless $ENV{MOD_PERL};
+    # This is managed in mod_perl.pl and app.psgi when running
+    # in a persistent environment.
+    _cleanup() unless i_am_persistent();
 }
 
-init_page() if !$ENV{MOD_PERL};
+# Also managed in mod_perl.pl and app.psgi.
+init_page() unless i_am_persistent();
 
 1;
 
@@ -977,8 +1021,17 @@ this Bugzilla installation.
 
 =item C<feature>
 
-Tells you whether or not a specific feature is enabled. For names
-of features, see C<OPTIONAL_MODULES> in C<Bugzilla::Install::Requirements>.
+Wrapper around C<has_feature()> that also loads all of required modules into the runtime.
+
+=item C<has_feature>
+
+Consults F<MYMETA.yml> for optional Bugzilla features and returns true if all the requirements
+are installed.
+
+=item C<api_server>
+
+Returns a cached instance of the WebService API server object used for
+manipulating Bugzilla resources.
 
 =back
 

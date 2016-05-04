@@ -52,6 +52,19 @@ token     string  Token which can be passed in the parameters as
                   of the session, i.e. til :ref:`rest_user_logout` is called.
 ========  ======  ===============================================================
 
+**Errors**
+
+* 300 (Invalid Username or Password)
+  The username does not exist, or the password is wrong.
+* 301 (Login Disabled)
+  The ability to login with this account has been disabled.  A reason may be
+  specified with the error.
+* 305 (New Password Required)
+  The current password is correct, but the user is asked to change
+  their password.
+* 50 (Param Required)
+  A login or password parameter was not provided.
+
 .. _rest_user_logout:
 
 Logout
@@ -129,6 +142,8 @@ to perform this action.
 ==========  ======  =============================================================
 name        type    description
 ==========  ======  =============================================================
+**login**   string  The login name for the new user. Ignored if the
+                    *use_email_as_login* parameter is true.
 **email**   string  The email address for the new user.
 full_name   string  The user's full name. Will be set to empty if not specified.
 password    string  The password for the new user account, in plain text. It
@@ -154,6 +169,16 @@ name  type  desciption
 id    int   The numeric ID of the user that was created.
 ====  ====  ============================================
 
+**Errors**
+
+* 502 (Password Too Short)
+  The password specified is too short. (Usually, this means the
+  password is under three characters.)
+
+**History**
+
+The *login* parameter has been added in Bugzilla 6.0.
+
 .. _rest_user_update:
 
 Update User
@@ -161,6 +186,10 @@ Update User
 
 Updates an existing user account in Bugzilla. You must be authenticated and be
 in the *editusers* group to perform this action.
+
+If you are not in the *editusers* group, you may add or remove users from groups
+if you have bless permissions for the groups you wish to modify. All other changes
+will be ignored.
 
 **Request**
 
@@ -180,8 +209,7 @@ login names using the ``ids`` or ``names`` parameters respectively.
 **ids**            array    Additional IDs of users to update.
 **names**          array    Additional login names of users to update.
 full_name          string   The new name of the user.
-email              string   The email of the user. Note that email used to
-                            login to bugzilla. Also note that you can only
+email              string   The email of the user. Also note that you can only
                             update one user at a time when changing the login
                             name / email. (An error will be thrown if you try to
                             update this field for multiple users at once.)
@@ -237,6 +265,13 @@ changes  object  The changes that were actually done on this user. The keys
                    field, possibly a comma-and-space-separated list if multiple
                    values were removed.
 =======  ======  ================================================================
+
+**Errors**
+
+* 51 (Bad Login Name)
+  You passed an invalid login name in the "names" array.
+* 304 (Authorization Required)
+  Logged-in users are not authorized to edit other users.
 
 .. _rest_user_get:
 
@@ -327,8 +362,7 @@ id                 int      The unique integer ID that Bugzilla uses to represen
                             this will not change.
 real_name          string   The actual name of the user. May be blank.
 email              string   The email address of the user.
-name               string   The login name of the user. Note that in some
-                            situations this is different than their email.
+name               string   The login name of the user.
 can_login          boolean  A boolean value to indicate if the user can login
                             into bugzilla.
 email_enabled      boolean  A boolean value to indicate if bug-related mail will
@@ -374,7 +408,24 @@ query  string  The CGI parameters for the saved report.
 If you are not authenticated when you call this function, you will only be
 returned the ``id``, ``name``, and ``real_name`` items. If you are authenticated
 and not in 'editusers' group, you will only be returned the ``id``, ``name``,
-``real_name``, ``email``, ``can_login``, and ``groups`` items. The groups
+``real_name``, ``can_login``, and ``groups`` items. The groups
 returned are filtered based on your permission to bless each group. The
 ``saved_searches`` and ``saved_reports`` items are only returned if you are
 querying your own account, even if you are in the editusers group.
+
+**Errors**
+
+* 51 (Bad Login Name or Group ID)
+  You passed an invalid login name in the "names" array or a bad
+  group ID in the "group_ids" argument.
+* 52 (Invalid Parameter)
+  The value used must be an integer greater than zero.
+* 304 (Authorization Required)
+  You are logged in, but you are not authorized to see one of the users you
+  wanted to get information about by user id.
+* 505 (User Access By Id or User-Matching Denied)
+  Logged-out users cannot use the "ids" or "match" arguments to this
+  function.
+* 804 (Invalid Group Name)
+  You passed a group name in the "groups" argument which either does not
+  exist or you do not belong to it.

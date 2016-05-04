@@ -6,11 +6,11 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::Bug;
@@ -69,7 +69,7 @@ else {
     # web browser and a parameter is passed to the script.
     # XXX - Maybe these two parameters should be deleted once logged in?
     $cgi->delete('GoAheadAndLogIn', 'Bugzilla_restrictlogin');
-    if (scalar($cgi->param())) {
+    if (scalar $cgi->multi_param()) {
         my $token = $cgi->param('token');
         check_hash_token($token, ['sanitycheck']);
     }
@@ -645,7 +645,7 @@ DoubleCrossCheck("milestones", "product_id", "value",
 
 Status('profile_login_start');
 
-my $sth = $dbh->prepare(q{SELECT userid, login_name FROM profiles});
+my $sth = $dbh->prepare(q{SELECT userid, email FROM profiles});
 $sth->execute;
 
 while (my ($id, $email) = $sth->fetchrow_array) {

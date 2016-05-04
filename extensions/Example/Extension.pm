@@ -7,7 +7,7 @@
 
 package Bugzilla::Extension::Example;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -479,13 +479,7 @@ sub error_catch {
     my $new_error_msg = "Ah ah, you tried to access $page_id? Good try!";
     $new_error_msg = html_quote($new_error_msg);
     # There are better tools to parse an HTML page, but it's just an example.
-    # Since Perl 5.16, we can no longer write "class" inside look-behind
-    # assertions, because "ss" is also seen as the german ß character, which
-    # makes Perl 5.16 complain. The right fix is to use the /aa modifier,
-    # but it's only understood since Perl 5.14. So the workaround is to write
-    # "clas[s]" instead of "class". Stupid and ugly hack, but it works with
-    # all Perl versions.
-    $$page =~ s/(?<=<td id="error_msg" clas[s]="throw_error">).*(?=<\/td>)/$new_error_msg/si;
+    $$page =~ s/<div id="error_msg" class="throw_error">\K(.*)/$new_error_msg<br>$1/siaa;
 }
 
 sub flag_end_of_update {
@@ -633,6 +627,12 @@ sub mailer_before_send {
     # 'X-Bugzilla-<Extension>' so that you don't conflict with
     # other extensions.
     $email->header_set('X-Bugzilla-Example-Header', 'Example');
+}
+
+sub migrate_modules {
+    my ($self, $args) = @_;
+    $args->{path} = bz_locations->{'extensionsdir'} . "/Example/lib/Migrate";
+    $args->{prefix} = "Bugzilla::Extension::Example::Migrate";
 }
 
 sub object_before_create {
@@ -1058,28 +1058,33 @@ sub webservice_rest_resources {
     my $resources = $args->{'resources'};
     # Add a new resource that allows for /rest/example/hello
     # to call Example.hello
-    $resources->{'Bugzilla::Extension::Example::WebService'} = [
-        qr{^/example/hello$}, {
-            GET => {
-                method => 'hello',
-            }
-        }
-    ];
+    #$resources->{'Bugzilla::Extension::Example::WebService'} = [
+    #    qr{^/example/hello$}, {
+    #        GET => {
+    #            method => 'hello',
+    #        }
+    #    }
+    #];
 }
 
-sub webservice_rest_response {
+sub webservice_rest_result {
     my ($self, $args) = @_;
-    my $rpc      = $args->{'rpc'};
-    my $result   = $args->{'result'};
-    my $response = $args->{'response'};
+    my $result = $args->{'result'};
     # Convert a list of bug hashes to a single bug hash if only one is
     # being returned.
     if (ref $$result eq 'HASH'
         && exists $$result->{'bugs'}
+        && ref $$result->{'bugs'} eq 'ARRAY'
         && scalar @{ $$result->{'bugs'} } == 1)
     {
         $$result = $$result->{'bugs'}->[0];
     }
+}
+
+sub webservice_rest_response {
+    my ($self, $args) = @_;
+    my $response = $args->{'response'};
+    $response->header('X-Example-Header', 'This is an example header');
 }
 
 # This must be the last line of your extension.

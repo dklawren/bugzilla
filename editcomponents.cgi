@@ -6,11 +6,11 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::Constants;
@@ -113,7 +113,7 @@ if ($action eq 'new') {
     my $default_assignee   = trim($cgi->param('initialowner')     || '');
     my $default_qa_contact = trim($cgi->param('initialqacontact') || '');
     my $description        = trim($cgi->param('description')      || '');
-    my @initial_cc         = $cgi->param('initialcc');
+    my @initial_cc         = $cgi->multi_param('initialcc');
     my $isactive           = $cgi->param('isactive');
 
     my $component = Bugzilla::Component->create({
@@ -216,7 +216,7 @@ if ($action eq 'update') {
     my $default_assignee      = trim($cgi->param('initialowner')     || '');
     my $default_qa_contact    = trim($cgi->param('initialqacontact') || '');
     my $description           = trim($cgi->param('description')      || '');
-    my @initial_cc            = $cgi->param('initialcc');
+    my @initial_cc            = $cgi->multi_param('initialcc');
     my $isactive              = $cgi->param('isactive');
   
     my $component =

@@ -6,11 +6,11 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::Util;
@@ -76,7 +76,7 @@ if (!$cgi->param('field')) {
 }
 
 # At this point, the field must be defined.
-my $field = Bugzilla::Field->check($cgi->param('field'));
+my $field = Bugzilla::Field->check(scalar $cgi->param('field'));
 if (!$field->is_select || $field->is_abnormal) {
     ThrowUserError('fieldname_invalid', { field => $field });
 }
@@ -119,7 +119,7 @@ if ($action eq 'new') {
 }
 
 # After this, we always have a value
-my $value = Bugzilla::Field::Choice->type($field)->check($cgi->param('value'));
+my $value = Bugzilla::Field::Choice->type($field)->check(scalar $cgi->param('value'));
 $vars->{'value'} = $value;
 
 #

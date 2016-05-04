@@ -7,7 +7,7 @@
 
 package Bugzilla::Mailer;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -17,14 +17,12 @@ use parent qw(Exporter);
 use Bugzilla::Constants;
 use Bugzilla::Error;
 use Bugzilla::Hook;
+use Bugzilla::MIME;
 use Bugzilla::User;
 use Bugzilla::Util;
 
 use Date::Format qw(time2str);
 
-use Encode qw(encode);
-use Encode::MIME::Header;
-use Email::MIME;
 use Email::Sender::Simple qw(sendmail);
 use Email::Sender::Transport::SMTP::Persistent;
 use Bugzilla::Sender::Transport::Sendmail;
@@ -34,17 +32,17 @@ sub generate_email {
     my ($lang, $email_format, $msg_text, $msg_html, $msg_header);
 
     if ($vars->{to_user}) {
-      $lang = $vars->{to_user}->setting('lang');
-      $email_format = $vars->{to_user}->setting('email_format');
+        $lang = $vars->{to_user}->setting('lang');
+        $email_format = $vars->{to_user}->setting('email_format');
     } else {
-      # If there are users in the CC list who don't have an account,
-      # use the default language for email notifications.
-      $lang = Bugzilla::User->new()->setting('lang');
-      # However we cannot fall back to the default email_format, since
-      # it may be HTML, and many of the includes used in the HTML
-      # template require a valid user object. Instead we fall back to
-      # the plaintext template.
-      $email_format = 'text_only';
+        # If there are users in the CC list who don't have an account,
+        # use the default language for email notifications.
+        $lang = Bugzilla::User->new()->setting('lang');
+        # However we cannot fall back to the default email_format, since
+        # it may be HTML, and many of the includes used in the HTML
+        # template require a valid user object. Instead we fall back to
+        # the plaintext template.
+        $email_format = 'text_only';
     }
 
     my $template = Bugzilla->template_inner($lang);
@@ -55,32 +53,35 @@ sub generate_email {
         || ThrowTemplateError($template->error());
 
     my @parts = (
-        Email::MIME->create(
+        Bugzilla::MIME->create(
             attributes => {
-                content_type => "text/plain",
+                content_type => 'text/plain',
+                charset      => 'UTF-8',
+                encoding     => 'quoted-printable',
             },
-            body => $msg_text,
+            body_str => $msg_text,
         )
     );
     if ($templates->{html} && $email_format eq 'html') {
         $template->process($templates->{html}, $vars, \$msg_html)
             || ThrowTemplateError($template->error());
-        push @parts, Email::MIME->create(
+        push @parts, Bugzilla::MIME->create(
             attributes => {
-                content_type => "text/html",
+                content_type => 'text/html',
+                charset      => 'UTF-8',
+                encoding     => 'quoted-printable',
             },
-            body => $msg_html,
+            body_str => $msg_html,
         );
     }
 
-    # TT trims the trailing newline, and threadingmarker may be ignored.
-    my $email = new Email::MIME("$msg_header\n");
+    my $email = Bugzilla::MIME->new($msg_header);
     if (scalar(@parts) == 1) {
         $email->content_type_set($parts[0]->content_type);
     } else {
         $email->content_type_set('multipart/alternative');
         # Some mail clients need same encoding for each part, even empty ones.
-        $email->charset_set('UTF-8') if Bugzilla->params->{'utf8'};
+        $email->charset_set('UTF-8');
     }
     $email->parts_set(\@parts);
     return $email;
@@ -101,18 +102,7 @@ sub MessageToMTA {
 
     my $dbh = Bugzilla->dbh;
 
-    my $email;
-    if (ref $msg) {
-        $email = $msg;
-    }
-    else {
-        # RFC 2822 requires us to have CRLF for our line endings and
-        # Email::MIME doesn't do this for us. We use \015 (CR) and \012 (LF)
-        # directly because Perl translates "\n" depending on what platform
-        # you're running on. See http://perldoc.perl.org/perlport.html#Newlines
-        $msg =~ s/(?:\015+)?\012/\015\012/msg;
-        $email = new Email::MIME($msg);
-    }
+    my $email = ref($msg) ? $msg : Bugzilla::MIME->new($msg);
 
     # If we're called from within a transaction, we don't want to send the
     # email immediately, in case the transaction is rolled back. Instead we
@@ -122,7 +112,10 @@ sub MessageToMTA {
         # The e-mail string may contain tainted values.
         my $string = $email->as_string;
         trick_taint($string);
-        $dbh->do("INSERT INTO mail_staging (message) VALUES(?)", undef, $string);
+
+        my $sth = $dbh->prepare("INSERT INTO mail_staging (message) VALUES (?)");
+        $sth->bind_param(1, $string, $dbh->BLOB_TYPE);
+        $sth->execute;
         return;
     }
 
@@ -159,37 +152,6 @@ sub MessageToMTA {
             if ($hour_rate >= EMAIL_LIMIT_PER_HOUR) {
                 die EMAIL_LIMIT_EXCEPTION;
             }
-        }
-    }
-
-    # We add this header to uniquely identify all email that we
-    # send as coming from this Bugzilla installation.
-    #
-    # We don't use correct_urlbase, because we want this URL to
-    # *always* be the same for this Bugzilla, in every email,
-    # even if the admin changes the "ssl_redirect" parameter some day.
-    $email->header_set('X-Bugzilla-URL', Bugzilla->params->{'urlbase'});
-
-    # We add this header to mark the mail as "auto-generated" and
-    # thus to hopefully avoid auto replies.
-    $email->header_set('Auto-Submitted', 'auto-generated');
-
-    # MIME-Version must be set otherwise some mailsystems ignore the charset
-    $email->header_set('MIME-Version', '1.0') if !$email->header('MIME-Version');
-
-    # Encode the headers correctly in quoted-printable
-    foreach my $header ($email->header_names) {
-        my @values = $email->header($header);
-        # We don't recode headers that happen multiple times.
-        next if scalar(@values) > 1;
-        if (my $value = $values[0]) {
-            utf8::decode($value) unless utf8::is_utf8($value);
-
-            # avoid excessive line wrapping done by Encode.
-            local $Encode::Encoding{'MIME-Q'}->{'bpl'} = 998;
-
-            my $encoded = encode('MIME-Q', $value);
-            $email->header_set($header, $encoded);
         }
     }
 
@@ -237,30 +199,9 @@ sub MessageToMTA {
 
     return if $email->header('to') eq '';
 
-    $email->walk_parts(sub {
-        my ($part) = @_;
-        return if $part->parts > 1; # Top-level
-        my $content_type = $part->content_type || '';
-        $content_type =~ /charset=['"](.+)['"]/;
-        # If no charset is defined or is the default us-ascii,
-        # then we encode the email to UTF-8.
-        # XXX - This is a hack to workaround bug 723944.
-        if (!$1 || $1 eq 'us-ascii') {
-            my $body = $part->body;
-            $part->charset_set('UTF-8');
-            # encoding_set works only with bytes, not with utf8 strings.
-            my $raw = $part->body_raw;
-            if (utf8::is_utf8($raw)) {
-                utf8::encode($raw);
-                $part->body_set($raw);
-            }
-            $part->encoding_set('quoted-printable') if !is_7bit_clean($body);
-        }
-    });
-
     if ($method eq "Test") {
         my $filename = bz_locations()->{'datadir'} . '/mailer.testfile';
-        open TESTFILE, '>>', $filename;
+        open TESTFILE, '>>:encoding(UTF-8)', $filename;
         # From - <date> is required to be a valid mbox file.
         print TESTFILE "\n\nFrom - " . $email->header('Date') . "\n" . $email->as_string;
         close TESTFILE;
@@ -317,17 +258,14 @@ sub build_thread_marker {
 
 sub send_staged_mail {
     my $dbh = Bugzilla->dbh;
-    my @ids;
-    my $emails
-        = $dbh->selectall_arrayref("SELECT id, message FROM mail_staging");
 
-    foreach my $row (@$emails) {
-        MessageToMTA($row->[1]);
-        push(@ids, $row->[0]);
-    }
+    my $emails = $dbh->selectall_arrayref('SELECT id, message FROM mail_staging');
+    my $sth = $dbh->prepare('DELETE FROM mail_staging WHERE id = ?');
 
-    if (@ids) {
-        $dbh->do("DELETE FROM mail_staging WHERE " . $dbh->sql_in('id', \@ids));
+    foreach my $email (@$emails) {
+        my ($id, $message) = @$email;
+        MessageToMTA($message);
+        $sth->execute($id);
     }
 }
 

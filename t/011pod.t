@@ -10,11 +10,11 @@
 #Bugzilla Test 11#
 ##POD validation##
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib 't';
+use lib qw(. lib local/lib/perl5 t);
 
 use Support::Files;
 use Pod::Checker;
@@ -24,7 +24,7 @@ use Test::More tests => scalar(@Support::Files::testitems)
                         + scalar(@Support::Files::module_files);
 
 # These methods do not need to be documented by default.
-use constant DEFAULT_WHITELIST => qr/^(?:new|new_from_list|check|run_create_validators)$/;
+use constant DEFAULT_WHITELIST => qr/^(?:new|new_from_list|check|run_create_validators|[A-Z_]+)$/;
 
 # These subroutines do not need to be documented, generally because
 # you shouldn't call them yourself. No need to include subroutines
@@ -35,6 +35,7 @@ use constant SUB_WHITELIST => (
     'Bugzilla::JobQueue' => qr/(?:^work_once|work_until_done|subprocess_worker)$/,
     'Bugzilla::Search'   => qr/^SPECIAL_PARSING$/,
     'Bugzilla::Template' => qr/^field_name$/,
+    'Bugzilla::MIME'     => qr/^as_string$/,
 );
 
 # These modules do not need to be documented, generally because they
@@ -49,6 +50,7 @@ use constant MODULE_WHITELIST => qw(
     Bugzilla::Extension::
     Bugzilla::Job::
     Bugzilla::Migrate::
+    docs::lib::Pod::Simple::
 );
 
 # Capture the TESTOUT from Test::More or Test::Builder for printing errors.

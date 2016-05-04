@@ -32,6 +32,7 @@
   header_addl_info = ""
   onload = ""
   style_urls = []
+  javascript_urls = []
   yui = []
   yui_css = {}
   yui_deps = {}
@@ -39,12 +40,11 @@
   jquery = []
   jquery_css = []
   generate_api_token = 0
+  favicon_url = "images/favicon.ico"
 %]
 
 [% IF NOT no_yui %]
   [% SET yui_css = {
-    autocomplete => 1,
-    calendar     => 1,
     datatable    => 1,
     button       => 1,
   } %]
@@ -54,8 +54,7 @@
     # if that module is going to be specified in "yui".
     #%]
   [% SET yui_deps = {
-    autocomplete => ['json', 'connection', 'datasource'],
-    datatable    => ['json', 'connection', 'datasource', 'element'],
+    datatable => ['json', 'connection', 'datasource', 'element'],
   } %]
 
   [%# When using certain YUI modules, we need to process certain
@@ -84,10 +83,14 @@
   "js/jquery/ui/jquery-ui-structure-min.css",
   "js/jquery/ui/jquery-ui-theme-min.css",
 ] %]
-[% style_urls.import(jquery_css, jq_css_urls) FILTER null %]
 
-[%# Add jQuery cookie support %]
-[% jquery.push("cookie") %]
+[% FOREACH jq_name = jquery_css %]
+  [% style_urls.push("js/jquery/plugins/$jq_name/${jq_name}-min.css") %]
+[% END %]
+[% style_urls.import(jq_css_urls) FILTER null %]
+
+[%# Add our required jQuery plugins %]
+[% jquery.push("cookie", "devbridgeAutocomplete") %]
 
 [%# We should be able to set the default value of the header variable
   # to the value of the title variable using the DEFAULT directive,
@@ -179,13 +182,22 @@
         } 
         $(document).ready(unhide_language_selector);
 
+        // This sets the default parameters for all calendar fields.
+        $.datepicker.setDefaults({
+            dateFormat: "yy-mm-dd", // this is the YYYY-MM-DD format
+            showButtonPanel: true,  // permits to easily select "Today"
+            // These 3 parameters are useful for localization.
+            firstDay: 0,            // 0 = Sunday, 1 = Monday, etc...
+            dayNamesMin: [ "Su", "Mo", "Tu", "We", "Th", "Fr", "Sa" ],
+            monthNames: [ "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December" ]
+        });
+
         [%# Make some Bugzilla information available to all scripts. 
           # We don't import every parameter and constant because we
           # don't want to add a lot of uncached JS to every page. 
           #%]
         var BUGZILLA = {
             param: {
-                cookiepath: '[% Param('cookiepath') FILTER js %]',
                 maxusermatches: [% Param('maxusermatches') FILTER js %]
             },
             constant: {
@@ -228,6 +240,16 @@
       [% PROCESS format_js_link %]
     [% END %]
 
+    [%# IE8 doesn't understand these HTML5 elements. So we have to declare them here. %]
+    <!--[if lt IE 9]>
+      <script>
+        document.createElement('header');
+        document.createElement('nav');
+        document.createElement('main');
+        document.createElement('footer');
+      </script>
+    <![endif]-->
+
     [%# this puts the live bookmark up on firefox for the Atom feed %]
     [% IF atomlink %]
        <link rel="alternate" 
@@ -238,7 +260,7 @@
     [%# Required for the 'Autodiscovery' feature in Firefox 2 and IE 7. %]
     <link rel="search" type="application/opensearchdescription+xml"
                        title="[% terms.Bugzilla %]" href="./search_plugin.cgi">
-    <link rel="shortcut icon" href="images/favicon.ico" >
+    <link rel="shortcut icon" href="[% favicon_url FILTER html %]">
     [% Hook.process("additional_header") %]
   </head>
 
@@ -248,7 +270,7 @@
                  [%+ class FILTER css_class_quote %]
                [% END %] yui-skin-sam">
 
-  <div id="header">
+  <header id="header">
     [% INCLUDE global/banner.html.tmpl %]
 
     <div id="titles">
@@ -263,10 +285,7 @@
       [% END %]
     </div>
 
-    <div id="common_links">
-      [% PROCESS "global/common-links.html.tmpl" qs_suffix = "_top" %]
-    </div>
-
+    [% USE Bugzilla %]
     [% IF Bugzilla.languages.size > 1 %]
       <div id="lang_links_container" class="bz_default_hidden">
         <ul class="links">
@@ -284,9 +303,13 @@
         </ul>
       </div>
     [% END %]
-  </div>
 
-  <div id="bugzilla-body">
+    <nav id="common_links">
+      [% PROCESS "global/common-links.html.tmpl" qs_suffix = "_top" %]
+    </nav>
+  </header>
+
+  <main role="main" id="bugzilla-body">
     [% IF Param('announcehtml') %]
       [% Param('announcehtml') FILTER none %]
     [% END %]

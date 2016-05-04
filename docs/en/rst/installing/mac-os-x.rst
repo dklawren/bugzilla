@@ -28,7 +28,7 @@ Bugzilla
 
 The best way to get Bugzilla is to check it out from git:
 
-:command:`git clone --branch bugzilla-X.X-stable https://git.mozilla.org/bugzilla/bugzilla`
+:command:`git clone --branch release-X.X-stable https://git.mozilla.org/bugzilla/bugzilla`
 
 Run the above command in your home directory, replacing "X.X" with the 2-digit
 version number of the stable release of Bugzilla that you want - e.g. "4.4".
@@ -71,22 +71,19 @@ will need to agree to this.
 Perl Modules
 ============
 
-Bugzilla requires a number of Perl modules. On Mac OS X, the easiest thing to
-do is to install local copies (rather than system-wide copies) of any ones
-that you don't already have. However, if you do want to install them
-system-wide, run the below commands as root with the :command:`--global`
-option.
+Bugzilla requires a number of Perl modules. Generally, the best way to install
+these is with the cpanm command.
 
-To check whether you have all the required modules and what is still missing,
-run:
+Generally, the best way to install these is with :file:`cpanm`:
 
-:command:`perl checksetup.pl --check-modules`
+:command:`cpanm --installdeps -l local .`
 
-You can run this command as many times as necessary.
+If you want a more full-featured Bugzilla:
 
-Install all missing modules locally like this:
+:command:`cpanm --installdeps -l local --with-all-features --without-feature oracle --without-feature mysql --without-feature pg`
 
-:command:`perl install-module.pl --all`
+If you don't have :file:`cpanm` installed, you can
+`download it <http://cpanmin.us>`_  from cpanmin.us.
 
 .. _macosx-config-webserver:
 

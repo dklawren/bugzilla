@@ -7,7 +7,7 @@
 
 package Bugzilla::WebService::Bug;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -96,17 +96,6 @@ use constant ATTACHMENT_MAPPED_RETURNS => {
     filename    => 'file_name',
     mimetype    => 'content_type',
 };
-
-######################################################
-# Add aliases here for old method name compatibility #
-######################################################
-
-BEGIN { 
-  # In 3.0, get was called get_bugs
-  *get_bugs = \&get;
-  # Before 3.4rc1, "history" was get_history.
-  *get_history = \&history;
-}
 
 ###########
 # Methods #
@@ -256,6 +245,7 @@ sub _legal_field_values {
     elsif ($field_name eq 'keywords') {
         my @legal_keywords = Bugzilla::Keyword->get_all;
         foreach my $value (@legal_keywords) {
+            next unless $value->is_active;
             push (@result, {
                name     => $self->type('string', $value->name),
                description => $self->type('string', $value->description),
@@ -352,9 +342,10 @@ sub render_comment {
     Bugzilla->switch_to_shadow_db();
     my $bug = $params->{id} ? Bugzilla::Bug->check($params->{id}) : undef;
 
-    my $markdown = $params->{markdown} ? 1 : 0;
-    my $tmpl = $markdown ? '[% text FILTER markdown(bug, { is_markdown => 1 }) %]' : '[% text FILTER markdown(bug) %]';
-
+    my $tmpl
+      = $params->{markdown}
+      ? '[% text FILTER markdown(bug, { is_markdown => 1 }) %]'
+      : '[% text FILTER wrap_cite FILTER markdown(bug) %]';
     my $html;
     my $template = Bugzilla->template;
     $template->process(
@@ -375,7 +366,7 @@ sub _translate_comment {
     my $comment_hash = {
         id            => $self->type('int', $comment->id),
         bug_id        => $self->type('int', $comment->bug_id),
-        creator       => $self->type('email', $comment->author->login),
+        creator       => $self->type('login', $comment->author->login),
         time          => $self->type('dateTime', $comment->creation_ts),
         creation_time => $self->type('dateTime', $comment->creation_ts),
         is_private    => $self->type('boolean', $comment->is_private),
@@ -539,7 +530,7 @@ sub search {
     my %options = ( fields => ['bug_id'] );
 
     # Find the highest custom field id
-    my @field_ids = grep(/^f(\d+)$/, keys %$match_params);
+    my @field_ids = grep(/^f(\d+)$/a, keys %$match_params);
     my $last_field_id = @field_ids ? max @field_ids + 1 : 1;
 
     # Do special search types for certain fields.
@@ -585,7 +576,25 @@ sub search {
         ThrowUserError('buglist_parameters_required');
     }
 
-    $options{order}  = [ split(/\s*,\s*/, delete $match_params->{order}) ] if $match_params->{order};
+    # Allow the use of order shortcuts similar to web UI
+    if ($match_params->{order}) {
+        # Convert the value of the "order" form field into a list of columns
+        # by which to sort the results.
+        my %order_types = (
+            "Bug Number"   => [ "bug_id" ],
+            "Importance"   => [ "priority", "bug_severity" ],
+            "Assignee"     => [ "assigned_to", "bug_status", "priority", "bug_id" ],
+            "Last Changed" => [ "changeddate", "bug_status", "priority",
+                                "assigned_to", "bug_id" ],
+        );
+        if ($order_types{$match_params->{order}}) {
+            $options{order} = $order_types{$match_params->{order}};
+        }
+        else {
+            $options{order} = [ split(/\s*,\s*/, $match_params->{order}) ];
+        }
+    }
+
     $options{params} = $match_params;
 
     my $search = new Bugzilla::Search(%options);
@@ -672,7 +681,7 @@ sub update {
     foreach my $bug (@bugs) {
         $bug->set_all(\%values);
         if ($flags) {
-            my ($old_flags, $new_flags) = extract_flags($flags, $bug);
+            my ($old_flags, $new_flags) = extract_flags($flags, $bug->flag_types, $bug->flags);
             $bug->set_flags($old_flags, $new_flags);
         }
     }
@@ -738,19 +747,29 @@ sub create {
     $params = Bugzilla::Bug::map_fields($params);
 
     my $flags = delete $params->{flags};
+    # Set bug flags
+    if ($flags) {
+        my $product = Bugzilla::Product->check($params->{product});
+        my $component = Bugzilla::Component->check({
+            product => $product,
+            name => $params->{component}
+        });
+        my $flag_types = Bugzilla::FlagType::match({
+            product_id => $product->id,
+            component_id => $component->id,
+            is_active => 1,
+        });
+
+        my(undef, $new_flags) = extract_flags($flags, $flag_types);
+
+        $params->{flags} = $new_flags;
+    }
 
     # We start a nested transaction in case flag setting fails
     # we want the bug creation to roll back as well.
     $dbh->bz_start_transaction();
 
     my $bug = Bugzilla::Bug->create($params);
-
-    # Set bug flags
-    if ($flags) {
-        my ($flags, $new_flags) = extract_flags($flags, $bug);
-        $bug->set_flags($flags, $new_flags);
-        $bug->update($bug->creation_ts);
-    }
 
     $dbh->bz_commit_transaction();
 
@@ -844,7 +863,10 @@ sub add_attachment {
         });
 
         if ($flags) {
-            my ($old_flags, $new_flags) = extract_flags($flags, $bug, $attachment);
+            my ($old_flags, $new_flags) = extract_flags($flags,
+                $attachment->flag_types,
+                $attachment->flags);
+
             $attachment->set_flags($old_flags, $new_flags);
         }
 
@@ -909,8 +931,6 @@ sub update_attachment {
           || ThrowUserError("invalid_attach_id", { attach_id => $id });
         my $bug = $attachment->bug;
         $attachment->_check_bug;
-        $attachment->validate_can_edit
-          || ThrowUserError("illegal_attachment_edit", { attach_id => $id });
 
         push @attachments, $attachment;
         $bugs{$bug->id} = $bug;
@@ -930,10 +950,33 @@ sub update_attachment {
 
     # Update the values
     foreach my $attachment (@attachments) {
-        $attachment->set_all($params);
-        if ($flags) {
-            my ($old_flags, $new_flags) = extract_flags($flags, $attachment->bug, $attachment);
-            $attachment->set_flags($old_flags, $new_flags);
+        my ($update_flags, $new_flags) = $flags
+            ? extract_flags($flags, $attachment->flag_types, $attachment->flags)
+            : ([], []);
+        if ($attachment->validate_can_edit) {
+            $attachment->set_all($params);
+            $attachment->set_flags($update_flags, $new_flags) if $flags;
+        }
+        elsif (scalar @$update_flags && !scalar(@$new_flags) && !scalar keys %$params) {
+            # Requestees can set flags targetted to them, even if they cannot
+            # edit the attachment. Flag setters can edit their own flags too.
+            my %flag_list = map { $_->{id} => $_ } @$update_flags;
+            my $flag_objs = Bugzilla::Flag->new_from_list([ keys %flag_list ]);
+            my @editable_flags;
+            foreach my $flag_obj (@$flag_objs) {
+                if ($flag_obj->setter_id == $user->id
+                    || ($flag_obj->requestee_id && $flag_obj->requestee_id == $user->id))
+                {
+                    push(@editable_flags, $flag_list{$flag_obj->id});
+                }
+            }
+            if (!scalar @editable_flags) {
+                ThrowUserError("illegal_attachment_edit", { attach_id => $attachment->id });
+            }
+            $attachment->set_flags(\@editable_flags, []);
+        }
+        else {
+            ThrowUserError("illegal_attachment_edit", { attach_id => $attachment->id });
         }
     }
 
@@ -1171,6 +1214,10 @@ sub update_comment_tags {
                           { function => 'Bug.update_comment_tags',
                             param    => 'comment_id' });
 
+    ThrowCodeError('param_integer_required', { function => 'Bug.update_comment_tags',
+                                               param => 'comment_id' })
+      unless $comment_id =~ /^\d+$/a;
+
     my $comment = Bugzilla::Comment->new($comment_id)
         || return [];
     $comment->bug->check_is_visible();
@@ -1261,7 +1308,7 @@ sub _bug_to_hash {
         $item{alias} = [ map { $self->type('string', $_) } @{ $bug->alias } ];
     }
     if (filter_wants $params, 'assigned_to') {
-        $item{'assigned_to'} = $self->type('email', $bug->assigned_to->login);
+        $item{'assigned_to'} = $self->type('login', $bug->assigned_to->login);
         $item{'assigned_to_detail'} = $self->_user_to_hash($bug->assigned_to, $params, undef, 'assigned_to');
     }
     if (filter_wants $params, 'blocks') {
@@ -1275,7 +1322,7 @@ sub _bug_to_hash {
         $item{component} = $self->type('string', $bug->component);
     }
     if (filter_wants $params, 'cc') {
-        my @cc = map { $self->type('email', $_) } @{ $bug->cc };
+        my @cc = map { $self->type('login', $_) } @{ $bug->cc };
         $item{'cc'} = \@cc;
         $item{'cc_detail'} = [ map { $self->_user_to_hash($_, $params, undef, 'cc') } @{ $bug->cc_users } ];
     }
@@ -1283,7 +1330,7 @@ sub _bug_to_hash {
         $item{'creation_time'} = $self->type('dateTime', $bug->creation_ts);
     }
     if (filter_wants $params, 'creator') {
-        $item{'creator'} = $self->type('email', $bug->reporter->login);
+        $item{'creator'} = $self->type('login', $bug->reporter->login);
         $item{'creator_detail'} = $self->_user_to_hash($bug->reporter, $params, undef, 'creator');
     }
     if (filter_wants $params, 'depends_on') {
@@ -1314,7 +1361,7 @@ sub _bug_to_hash {
     }
     if (filter_wants $params, 'qa_contact') {
         my $qa_login = $bug->qa_contact ? $bug->qa_contact->login : '';
-        $item{'qa_contact'} = $self->type('email', $qa_login);
+        $item{'qa_contact'} = $self->type('login', $qa_login);
         if ($bug->qa_contact) {
             $item{'qa_contact_detail'} = $self->_user_to_hash($bug->qa_contact, $params, undef, 'qa_contact');
         }
@@ -1329,6 +1376,9 @@ sub _bug_to_hash {
     }
     if (filter_wants $params, 'tags', 'extra') {
         $item{'tags'} = $bug->tags;
+    }
+    if (filter_wants $params, 'duplicates', 'extra') {
+        $item{'duplicates'} = [ map { $self->type('int', $_->id) } @{ $bug->duplicates } ];
     }
 
     # And now custom fields
@@ -1383,8 +1433,7 @@ sub _user_to_hash {
     my $item = filter $filters, {
         id        => $self->type('int', $user->id),
         real_name => $self->type('string', $user->name),
-        name      => $self->type('email', $user->login),
-        email     => $self->type('email', $user->email),
+        name      => $self->type('login', $user->login),
     }, $types, $prefix;
     return $item;
 }
@@ -1405,10 +1454,10 @@ sub _attachment_to_hash {
         is_patch         => $self->type('int', $attach->ispatch),
     }, $types, $prefix;
 
-    # creator requires an extra lookup, so we only send them if
-    # the filter wants them.
+    # creator requires an extra lookup, so we only send it if
+    # the filter wants it.
     if (filter_wants $filters, 'creator', $types, $prefix) {
-        $item->{'creator'} = $self->type('email', $attach->attacher->login);
+        $item->{'creator'} = $self->type('login', $attach->attacher->login);
     }
 
     if (filter_wants $filters, 'data', $types, $prefix) {
@@ -1440,7 +1489,7 @@ sub _flag_to_hash {
 
     foreach my $field (qw(setter requestee)) {
         my $field_id = $field . "_id";
-        $item->{$field} = $self->type('email', $flag->$field->login)
+        $item->{$field} = $self->type('login', $flag->$field->login)
             if $flag->$field_id;
     }
 
@@ -2195,8 +2244,6 @@ B<STABLE>
 
 Gets information about particular bugs in the database.
 
-Note: Can also be called as "get_bugs" for compatibilty with Bugzilla 3.0 API.
-
 =item B<REST>
 
 To get information about a particular bug using its ID or alias:
@@ -2527,10 +2574,6 @@ C<string> The 'real' name for this user, if any.
 
 C<string> The user's Bugzilla login.
 
-=item C<email>
-
-C<string> The user's email address. Currently this is the same value as the name.
-
 =back
 
 =back
@@ -2544,6 +2587,10 @@ These fields are returned only by specifying "_extra" or the field name in "incl
 C<array> of C<string>s.  Each array item is a tag name.
 
 Note that tags are personal to the currently logged in user.
+
+=item C<duplicates>
+
+C<array> of C<integers>. Each array item is a bug ID that is a duplicate of this bug.
 
 =back
 
@@ -2646,7 +2693,11 @@ in Bugzilla B<4.4>.
 
 =item REST API call added in Bugzilla B<5.0>.
 
-=item In Bugzilla B<5.0>, the following items were added to the bugs return value: C<assigned_to_detail>, C<creator_detail>, C<qa_contact_detail>. 
+=item In Bugzilla B<5.0>, the following items were added to the bugs return
+value: C<assigned_to_detail>, C<creator_detail>, C<qa_contact_detail>.
+
+=item Since Bugzilla B<6.0>, the email address of users is private and is no
+longer returned as part of the user detail hash.
 
 =back
 
@@ -2683,7 +2734,7 @@ from the Bugzilla database to fetch. If it contains any non-numeric
 characters, it is considered to be a bug alias instead, and the data bug 
 with that alias will be loaded.
 
-item C<new_since>
+=item C<new_since>
 
 C<dateTime> If specified, the method will only return changes I<newer>
 than this time.
@@ -4791,15 +4842,5 @@ This method can throw all of the errors that L</get> throws.
 =item Added in Bugzilla B<5.0>.
 
 =back
-
-=back
-
-=head1 B<Methods in need of POD>
-
-=over
-
-=item get_bugs
-
-=item get_history
 
 =back

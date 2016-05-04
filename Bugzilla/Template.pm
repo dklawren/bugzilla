@@ -8,7 +8,7 @@
 
 package Bugzilla::Template;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -17,7 +17,7 @@ use Bugzilla::WebService::Constants;
 use Bugzilla::Hook;
 use Bugzilla::Install::Requirements;
 use Bugzilla::Install::Util qw(install_string template_include_path 
-                               include_languages);
+                               include_languages i_am_persistent);
 use Bugzilla::Classification;
 use Bugzilla::Keyword;
 use Bugzilla::Util;
@@ -148,10 +148,9 @@ sub get_format {
 # If you want to modify this routine, read the comments carefully
 
 sub quoteUrls {
-    my ($text, $bug, $comment, $user, $bug_link_func, $for_markdown) = @_;
+    my ($text, $bug, $comment, $user, $for_markdown) = @_;
     return $text unless $text;
     $user ||= Bugzilla->user;
-    $bug_link_func ||= \&get_bug_link;
     $for_markdown ||= 0;
 
     # We use /g for speed, but uris can have other things inside them
@@ -160,9 +159,7 @@ sub quoteUrls {
     # mailto can't contain space or #, so we don't have to bother for that
     # Do this by replacing matches with \x{FDD2}$count\x{FDD3}
     # \x{FDDx} is used because it's unlikely to occur in the text
-    # and are reserved unicode characters. We disable warnings for now
-    # until we require Perl 5.13.9 or newer.
-    no warnings 'utf8';
+    # and are reserved unicode characters.
 
     # If the comment is already wrapped, we should ignore newlines when
     # looking for matching regexps. Else we should take them into account.
@@ -206,7 +203,7 @@ sub quoteUrls {
         map { qr/$_/ } grep($_, Bugzilla->params->{'urlbase'}, 
                             Bugzilla->params->{'sslbase'})) . ')';
     $text =~ s~\b(${urlbase_re}\Qshow_bug.cgi?id=\E([0-9]+)(\#c([0-9]+))?)\b
-              ~($things[$count++] = $bug_link_func->($3, $1, { comment_num => $5, user => $user })) &&
+              ~($things[$count++] = get_bug_link($3, $1, { comment_num => $5, user => $user })) &&
                ("\x{FDD2}" . ($count-1) . "\x{FDD3}")
               ~egox;
 
@@ -248,13 +245,13 @@ sub quoteUrls {
     # Also, we can't use $bug_re?$comment_re? because that will match the
     # empty string
     my $bug_word = template_var('terms')->{bug};
-    my $bug_re = qr/\Q$bug_word\E$s*\#?$s*(\d+)/i;
+    my $bug_re = qr/\Q$bug_word\E$s*\#?$s*(\d+)/ai;
     my $comment_word = template_var('terms')->{comment};
-    my $comment_re = qr/(?:\Q$comment_word\E|comment)$s*\#?$s*(\d+)/i;
+    my $comment_re = qr/(?:\Q$comment_word\E|comment)$s*\#?$s*(\d+)/ai;
     $text =~ s~\b($bug_re(?:$s*,?$s*$comment_re)?|$comment_re)
               ~ # We have several choices. $1 here is the link, and $2-4 are set
                 # depending on which part matched
-               (defined($2) ? $bug_link_func->($2, $1, { comment_num => $3, user => $user }) :
+               (defined($2) ? get_bug_link($2, $1, { comment_num => $3, user => $user }) :
                               "<a href=\"$current_bugurl#c$4\">$1</a>")
               ~egx;
 
@@ -268,7 +265,7 @@ sub quoteUrls {
 
     $text =~ s{($bugs_re)}{
         my $match = $1;
-        $match =~ s/((?:#$s*)?(\d+))/$bug_link_func->($2, $1);/eg;
+        $match =~ s/((?:#$s*)?(\d+))/get_bug_link($2, $1);/eg;
         $match;
     }eg;
 
@@ -288,7 +285,7 @@ sub quoteUrls {
     $text =~ s~(?<=^\*\*\*\ This\ bug\ has\ been\ marked\ as\ a\ duplicate\ of\ )
                (\d+)
                (?=\ \*\*\*\Z)
-              ~$bug_link_func->($1, $1, { user => $user })
+              ~get_bug_link($1, $1, { user => $user })
               ~egmx;
 
     # Now remove the encoding hacks in reverse order
@@ -302,7 +299,6 @@ sub quoteUrls {
 # Creates a link to an attachment, including its title.
 sub get_attachment_link {
     my ($attachid, $link_text, $user) = @_;
-    my $dbh = Bugzilla->dbh;
     $user ||= Bugzilla->user;
 
     my $attachment = new Bugzilla::Attachment({ id => $attachid, cache => 1 });
@@ -353,7 +349,6 @@ sub get_bug_link {
     my ($bug, $link_text, $options) = @_;
     $options ||= {};
     $options->{user} ||= Bugzilla->user;
-    my $dbh = Bugzilla->dbh;
 
     if (defined $bug && $bug ne '') {
         if (!blessed($bug)) {
@@ -546,7 +541,7 @@ sub _css_url_rewrite {
     if (substr($url, 0, 1) eq '/' || substr($url, 0, 5) eq 'data:') {
         return 'url(' . $url . ')';
     }
-    return 'url(../../' . dirname($source) . '/' . $url . ')';
+    return 'url(../../' . ($ENV{'PROJECT'} ? '../' : '') . dirname($source) . '/' . $url . ')';
 }
 
 sub _concatenate_js {
@@ -743,7 +738,7 @@ sub create {
         # if a packager has modified bz_locations() to contain absolute
         # paths.
         ABSOLUTE => 1,
-        RELATIVE => $ENV{MOD_PERL} ? 0 : 1,
+        RELATIVE => i_am_persistent() ? 0 : 1,
 
         COMPILE_DIR => bz_locations()->{'template_cache'},
 
@@ -856,12 +851,16 @@ sub create {
             },
 
             # In CSV, quotes are doubled, and any value containing a quote or a
-            # comma is enclosed in quotes. If a field starts with an equals
-            # sign, it is proceed by a space.
+            # comma is enclosed in quotes.
+            # If a field starts with either "=", "+", "-" or "@", it is preceded
+            # by a space to prevent stupid formula execution from Excel & co.
             csv => sub
             {
                 my ($var) = @_;
-                $var = ' ' . $var if substr($var, 0, 1) eq '=';
+                $var = ' ' . $var if $var =~ /^[+=@-]/;
+                # backslash is not special to CSV, but it can be used to confuse some browsers...
+                # so we do not allow it to happen. We only do this for logged-in users.
+                $var =~ s/\\/\x{FF3C}/g if Bugzilla->user->id;
                 $var =~ s/\"/\"\"/g;
                 if ($var !~ /^-?(\d+\.)?\d*$/) {
                     $var = "\"$var\"";
@@ -972,6 +971,13 @@ sub create {
                     return sub { wrap_comment($_[0], $cols) }
                 }, 1],
 
+            # Wrap cited text
+            wrap_cite => [
+                sub {
+                    my ($context, $cols) = @_;
+                    return sub { wrap_cite($_[0], $cols) }
+                }, 1],
+
             # We force filtering of every variable in key security-critical
             # places; we have a none filter for people to use when they 
             # really, really don't want a variable to be changed.
@@ -1007,6 +1013,10 @@ sub create {
             # Currently logged in user, if any
             # If an sudo session is in progress, this is the user we're faking
             'user' => sub { return Bugzilla->user; },
+
+            # TT directives are evaluated in list context, conflicting
+            # with CGI checks about using $cgi->param() in list context.
+            'cgi_param' => sub { return scalar Bugzilla->cgi->param($_[0]) },
 
             # Currenly active language
             'current_language' => sub { return Bugzilla->current_language; },
@@ -1109,9 +1119,14 @@ sub create {
             # Whether or not keywords are enabled, in this Bugzilla.
             'use_keywords' => sub { return Bugzilla::Keyword->any_exist; },
 
-            # All the keywords.
+            # All the keywords
             'all_keywords' => sub {
                 return [map { $_->name } Bugzilla::Keyword->get_all()];
+            },
+
+            # All the active keywords
+            'active_keywords' => sub {
+                return [map { $_->name } grep { $_->is_active } Bugzilla::Keyword->get_all()];
             },
 
             'feature_enabled' => sub { return Bugzilla->feature(@_); },
@@ -1149,6 +1164,17 @@ sub create {
                 return \@optional;
             },
             'default_authorizer' => sub { return Bugzilla::Auth->new() },
+
+            'login_not_email' => sub {
+                my $params = Bugzilla->params;
+                my $cache = Bugzilla->request_cache;
+
+                return $cache->{login_not_email} //=
+                  (!$params->{use_email_as_login}
+                     || ($params->{user_verify_class} =~ /LDAP/ && $params->{LDAPmailattribute})
+                     || ($params->{user_verify_class} =~ /RADIUS/ && $params->{RADIUS_email_suffix}))
+                  ? 1 : 0;
+            },
         },
     };
     # Use a per-process provider to cache compiled templates in memory across

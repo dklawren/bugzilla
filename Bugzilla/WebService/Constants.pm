@@ -7,7 +7,7 @@
 
 package Bugzilla::WebService::Constants;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -69,6 +69,8 @@ use constant WS_ERROR_CODE => {
     number_too_large            => 54,
     number_too_small            => 55,
     illegal_date                => 56,
+    param_integer_required      => 57,
+    param_scalar_array_required => 58,
     # Bug errors usually occupy the 100-200 range.
     improper_bug_id_field_value => 100,
     bug_id_does_not_exist       => 101,
@@ -217,6 +219,9 @@ use constant WS_ERROR_CODE => {
     component_blank_description            => 1211,
     multiple_components_update_not_allowed => 1212,
     component_need_initialowner            => 1213,
+
+    # BugUserLastVisited errors
+    user_not_involved => 1300,
 
     # Errors thrown by the WebService itself. The ones that are negative 
     # conform to http://xmlrpc-epi.sourceforge.net/specs/rfc.fault_codes.php

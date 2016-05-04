@@ -6,11 +6,11 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::Constants;
@@ -51,17 +51,17 @@ if ($single) {
     push @bugs, Bugzilla::Bug->check({ id => $id, cache => 1 });
     if (defined $cgi->param('mark')) {
         foreach my $range (split ',', $cgi->param('mark')) {
-            if ($range =~ /^(\d+)-(\d+)$/) {
+            if ($range =~ /^(\d+)-(\d+)$/a) {
                foreach my $i ($1..$2) {
                    $marks{$i} = 1;
                }
-            } elsif ($range =~ /^(\d+)$/) {
+            } elsif ($range =~ /^(\d+)$/a) {
                $marks{$1} = 1;
             }
         }
     }
 } else {
-    foreach my $id ($cgi->param('id')) {
+    foreach my $id ($cgi->multi_param('id')) {
         # Be kind enough and accept URLs of the form: id=1,2,3.
         my @ids = split(/,/, $id);
         my @check_bugs;
@@ -108,7 +108,7 @@ my @fieldlist = (Bugzilla::Bug->fields, 'flag', 'group', 'long_desc',
 my %displayfields;
 
 if ($cgi->param("field")) {
-    @fieldlist = $cgi->param("field");
+    @fieldlist = $cgi->multi_param("field");
 }
 
 unless ($user->is_timetracker) {
@@ -119,8 +119,8 @@ foreach (@fieldlist) {
     $displayfields{$_} = 1;
 }
 
-foreach ($cgi->param("excludefield")) {
-    $displayfields{$_} = undef;    
+foreach ($cgi->multi_param("excludefield")) {
+    $displayfields{$_} = undef;
 }
 
 $vars->{'displayfields'} = \%displayfields;

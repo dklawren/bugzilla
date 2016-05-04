@@ -6,11 +6,11 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::Util;
@@ -84,8 +84,8 @@ sub queue {
     my $userid = $user->id;
     my $vars = {};
 
-    my $status = validateStatus($cgi->param('status'));
-    my $form_group = validateGroup($cgi->param('group'));
+    my $status = validateStatus(scalar $cgi->param('status'));
+    my $form_group = validateGroup(scalar $cgi->param('group'));
 
     my $query = 
     # Select columns describing each flag, the bug/attachment on which
@@ -167,15 +167,15 @@ sub queue {
     my $do_union = $cgi->param('do_union');
 
     # Filter results by exact email address of requester or requestee.
-    if (defined $cgi->param('requester') && $cgi->param('requester') ne "") {
-        my $requester = $dbh->quote($cgi->param('requester'));
+    if (my $requester = $cgi->param('requester')) {
+        $requester = $dbh->quote($requester);
         trick_taint($requester); # Quoted above
         push(@criteria, $dbh->sql_istrcmp('requesters.login_name', $requester));
         push(@excluded_columns, 'requester') unless $do_union;
     }
-    if (defined $cgi->param('requestee') && $cgi->param('requestee') ne "") {
-        if ($cgi->param('requestee') ne "-") {
-            my $requestee = $dbh->quote($cgi->param('requestee'));
+    if (my $requestee = $cgi->param('requestee')) {
+        if ($requestee ne '-') {
+            $requestee = $dbh->quote($requestee);
             trick_taint($requestee); # Quoted above
             push(@criteria, $dbh->sql_istrcmp('requestees.login_name', $requestee));
         }
@@ -305,13 +305,22 @@ sub queue {
     $vars->{'requests'} = \@requests;
     $vars->{'types'} = \@types;
 
-    my %components;
-    foreach my $prod (@{$user->get_selectable_products}) {
-        foreach my $comp (@{$prod->components}) {
-            $components{$comp->name} = 1;
+    # This code is needed to populate the Product and Component select fields.
+    my ($products, %components);
+    if (Bugzilla->params->{useclassification}) {
+        foreach my $class (@{$user->get_selectable_classifications}) {
+            push @$products, @{$user->get_selectable_products($class->id)};
         }
     }
-    $vars->{'components'} = [ sort { $a cmp $b } keys %components ];
+    else {
+        $products = $user->get_selectable_products;
+    }
+
+    foreach my $product (@$products) {
+        $components{$_->name} = 1 foreach @{$product->components};
+    }
+    $vars->{'products'} = $products;
+    $vars->{'components'} = [ sort keys %components ];
 
     $vars->{'urlquerypart'} = $cgi->canonicalise_query('ctype');
 

@@ -10,11 +10,11 @@
 # as its only argument.  It attempts to troubleshoot as many installation
 # issues as possible.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::Constants;

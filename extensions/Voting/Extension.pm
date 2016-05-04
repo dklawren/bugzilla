@@ -7,7 +7,7 @@
 
 package Bugzilla::Extension::Voting;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -610,7 +610,7 @@ sub _update_votes {
         $sth_getVotes->execute($id);
         my $v = $sth_getVotes->fetchrow_array || 0;
         $sth_updateVotes->execute($v, $id);
-
+        $bugs{$id}->{votes} = $v if $bugs{$id};
         my $confirmed = _confirm_if_vote_confirmed($bugs{$id} || $id);
         push (@updated_bugs, $id) if $confirmed;
     }
@@ -746,7 +746,7 @@ sub _remove_votes {
 
     my $whopart = ($who) ? " AND votes.who = $who" : "";
 
-    my $sth = $dbh->prepare("SELECT profiles.login_name, " .
+    my $sth = $dbh->prepare("SELECT profiles.email, " .
                             "profiles.userid, votes.vote_count, " .
                             "products.votesperuser, products.maxvotesperbug " .
                             "FROM profiles " .
@@ -756,8 +756,8 @@ sub _remove_votes {
                             "WHERE votes.bug_id = ? " . $whopart);
     $sth->execute($id);
     my @list;
-    while (my ($name, $userid, $oldvotes, $votesperuser, $maxvotesperbug) = $sth->fetchrow_array()) {
-        push(@list, [$name, $userid, $oldvotes, $votesperuser, $maxvotesperbug]);
+    while (my ($email, $userid, $oldvotes, $votesperuser, $maxvotesperbug) = $sth->fetchrow_array()) {
+        push(@list, [$email, $userid, $oldvotes, $votesperuser, $maxvotesperbug]);
     }
 
     # @messages stores all emails which have to be sent, if any.
@@ -766,7 +766,7 @@ sub _remove_votes {
 
     if (scalar(@list)) {
         foreach my $ref (@list) {
-            my ($name, $userid, $oldvotes, $votesperuser, $maxvotesperbug) = (@$ref);
+            my ($email, $userid, $oldvotes, $votesperuser, $maxvotesperbug) = (@$ref);
 
             $maxvotesperbug = min($votesperuser, $maxvotesperbug);
 
@@ -797,7 +797,7 @@ sub _remove_votes {
             # Now lets send the e-mail to alert the user to the fact that their votes have
             # been reduced or removed.
             my $vars = {
-                'to' => $name . Bugzilla->params->{'emailsuffix'},
+                'to' => $email,
                 'bugid' => $id,
                 'reason' => $reason,
 

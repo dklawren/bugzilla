@@ -7,12 +7,13 @@
 
 package Bugzilla::Config::BugChange;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
 use Bugzilla::Config::Common;
 use Bugzilla::Status;
+use Bugzilla::Field;
 
 our $sortkey = 500;
 
@@ -31,17 +32,14 @@ sub get_param_list {
       @closed_bug_statuses = @current_closed_states if scalar(@current_closed_states);
   };
 
-  my $resolution_field = Bugzilla::Field->new({ name => 'resolution', cache => 1 });
-  # The empty resolution is included - it represents "no value"
-  my @resolutions = map {$_->name} @{ $resolution_field->legal_values };
-
   my @param_list = (
   {
    name => 'duplicate_or_move_bug_status',
    type => 's',
    choices => \@closed_bug_statuses,
    default => $closed_bug_statuses[0],
-   checker => \&check_bug_status
+   checker => \&check_bug_status,
+   onchange => \&change_duplicate_or_move_bug_status
   },
 
   {
@@ -54,12 +52,6 @@ sub get_param_list {
    name => 'letsubmitterchoosemilestone',
    type => 'b',
    default => 1
-  },
-
-  {
-   name => 'musthavemilestoneonaccept',
-   type => 'b',
-   default => 0
   },
 
   {
@@ -77,12 +69,18 @@ sub get_param_list {
   {
    name => 'resolution_forbidden_with_open_blockers',
    type => 's',
-   choices => \@resolutions,
+   choices => \&_get_resolutions,
    default => '',
    checker => \&check_resolution,
   } );
 
   return @param_list;
+}
+
+sub _get_resolutions {
+    my $resolution_field = Bugzilla::Field->new({ name => 'resolution', cache => 1 });
+    # The empty resolution is included - it represents "no value".
+    return [ map { $_->name } @{ $resolution_field->legal_values } ];
 }
 
 1;

@@ -8,16 +8,21 @@
 
 package Bugzilla::ModPerl;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
 # This sets up our libpath without having to specify it in the mod_perl
 # configuration.
 use File::Basename;
-use lib dirname(__FILE__);
+use File::Spec;
+BEGIN {
+    require lib;
+    my $dir = dirname(__FILE__);
+    lib->import($dir, File::Spec->catdir($dir, "lib"), File::Spec->catdir($dir, qw(local lib perl5)));
+}
+
 use Bugzilla::Constants ();
-use lib Bugzilla::Constants::bz_locations()->{'ext_libpath'};
 
 # If you have an Apache2::Status handler in your Apache configuration,
 # you need to load Apache2::Status *here*, so that any later-loaded modules
@@ -55,7 +60,7 @@ use Apache2::SizeLimit;
 # This means that every httpd child will die after processing
 # a CGI if it is taking up more than 45MB of RAM all by itself,
 # not counting RAM it is sharing with the other httpd processes.
-Apache2::SizeLimit->set_max_unshared_size(45_000);
+Apache2::SizeLimit->set_max_unshared_size(Bugzilla->localconfig->{apache_size_limit});
 
 my $cgi_path = Bugzilla::Constants::bz_locations()->{'cgi_path'};
 
@@ -75,7 +80,7 @@ PerlChildInitHandler "sub { Bugzilla::RNG::srand(); srand(); }"
     PerlCleanupHandler  Apache2::SizeLimit Bugzilla::ModPerl::CleanupHandler
     PerlOptions +ParseHeaders
     Options +ExecCGI
-    AllowOverride Limit FileInfo Indexes Options
+    AllowOverride All
     DirectoryIndex index.cgi index.html
 </Directory>
 EOT
@@ -110,7 +115,7 @@ foreach my $file (glob "$cgi_path/*.cgi") {
 
 package Bugzilla::ModPerl::ResponseHandler;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -147,7 +152,7 @@ sub handler : method {
 
 package Bugzilla::ModPerl::CleanupHandler;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 

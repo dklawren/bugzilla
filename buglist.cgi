@@ -6,11 +6,11 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::Constants;
@@ -123,7 +123,7 @@ if (my $last_list = $cgi->param('regetlastlist')) {
 # and order by, since relevance only exists when doing a fulltext search.
 my $fulltext = 0;
 if ($cgi->param('content')) { $fulltext = 1 }
-my @charts = map(/^field(\d-\d-\d)$/ ? $1 : (), $cgi->param());
+my @charts = map { /^field(\d-\d-\d)$/ ? $1 : () } $cgi->multi_param();
 foreach my $chart (@charts) {
     if ($cgi->param("field$chart") eq 'content' && $cgi->param("value$chart")) {
         $fulltext = 1;
@@ -645,29 +645,18 @@ my @order_columns;
 if ($order) {
     # Convert the value of the "order" form field into a list of columns
     # by which to sort the results.
-    ORDER: for ($order) {
-        /^Bug Number$/ && do {
-            @order_columns = ("bug_id");
-            last ORDER;
-        };
-        /^Importance$/ && do {
-            @order_columns = ("priority", "bug_severity");
-            last ORDER;
-        };
-        /^Assignee$/ && do {
-            @order_columns = ("assigned_to", "bug_status", "priority",
-                              "bug_id");
-            last ORDER;
-        };
-        /^Last Changed$/ && do {
-            @order_columns = ("changeddate", "bug_status", "priority",
-                              "assigned_to", "bug_id");
-            last ORDER;
-        };
-        do {
-            # A custom list of columns. Bugzilla::Search will validate items.
-            @order_columns = split(/\s*,\s*/, $order);
-        };
+    my %order_types = (
+        "Bug Number"   => [ "bug_id" ],
+        "Importance"   => [ "priority", "bug_severity" ],
+        "Assignee"     => [ "assigned_to", "bug_status", "priority", "bug_id" ],
+        "Last Changed" => [ "changeddate", "bug_status", "priority",
+                            "assigned_to", "bug_id" ],
+    );
+    if ($order_types{$order}) {
+        @order_columns = @{ $order_types{$order} };
+    }
+    else {
+        @order_columns = split(/\s*,\s*/, $order);
     }
 }
 
@@ -920,11 +909,11 @@ if (!$user->in_group('editbugs')) {
 }
 
 my @bugowners = keys %$bugowners;
-if (scalar(@bugowners) > 1 && $user->in_group('editbugs')) {
-    my $suffix = Bugzilla->params->{'emailsuffix'};
-    map(s/$/$suffix/, @bugowners) if $suffix;
-    my $bugowners = join(",", @bugowners);
-    $vars->{'bugowners'} = $bugowners;
+if (scalar(@bugowners) > 1
+    && $user->in_group('editbugs')
+    && Bugzilla->params->{'use_email_as_login'})
+{
+    $vars->{'bugowners'} = join(",", @bugowners);
 }
 
 # Whether or not to split the column titles across two rows to make
@@ -945,7 +934,7 @@ if (scalar(@products) == 1) {
     $one_product = Bugzilla::Product->new({ name => $products[0], cache => 1 });
 }
 # This is used in the "Zarroo Boogs" case.
-elsif (my @product_input = $cgi->param('product')) {
+elsif (my @product_input = $cgi->multi_param('product')) {
     if (scalar(@product_input) == 1 and $product_input[0] ne '') {
         $one_product = Bugzilla::Product->new({ name => $product_input[0], cache => 1 });
     }
@@ -964,7 +953,7 @@ if (scalar(@components) == 1) {
     $vars->{one_component} = $components[0];
 }
 # This is used in the "Zarroo Boogs" case.
-elsif (my @component_input = $cgi->param('component')) {
+elsif (my @component_input = $cgi->multi_param('component')) {
     if (scalar(@component_input) == 1 and $component_input[0] ne '') {
         $vars->{one_component}= $cgi->param('component');
     }
@@ -1132,7 +1121,6 @@ Bugzilla::Hook::process("buglist_format", {'vars' => $vars,
 # Generate and return the UI (HTML page) from the appropriate template.
 $template->process($format->{'template'}, $vars)
   || ThrowTemplateError($template->error());
-
 
 ################################################################################
 # Script Conclusion

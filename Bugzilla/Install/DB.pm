@@ -10,7 +10,7 @@ package Bugzilla::Install::DB;
 # NOTE: This package may "use" any modules that it likes,
 # localconfig is available, and params are up to date. 
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -121,6 +121,11 @@ sub update_fielddefs_definition {
     # 2012-04-12 aliustek@gmail.com - Bug 728138
     $dbh->bz_add_column('fielddefs', 'long_desc',
                         {TYPE => 'varchar(255)', NOTNULL => 1, DEFAULT => "''"}, '');
+
+    $dbh->bz_add_column('user_api_keys', 'app_id',
+                        {TYPE => 'varchar(64)'});
+    $dbh->bz_add_index('user_api_keys', 'user_api_keys_user_id_app_id_idx',
+                       [qw(user_id app_id)]);
 
     Bugzilla::Hook::process('install_update_db_fielddefs');
 
@@ -431,12 +436,8 @@ sub update_table_definitions {
     $dbh->bz_alter_column('groups', 'userregexp',
                           {TYPE => 'TINYTEXT', NOTNULL => 1, DEFAULT => "''"});
 
-    # 2005-09-26 - olav@bkor.dhs.org - Bug 119524
-    $dbh->bz_alter_column('logincookies', 'cookie',
-        {TYPE => 'varchar(16)', PRIMARYKEY => 1, NOTNULL => 1}); 
-
     _clean_control_characters_from_short_desc();
-    
+
     # 2005-12-07 altlst@sonic.net -- Bug 225221
     $dbh->bz_add_column('longdescs', 'comment_id',
         {TYPE => 'INTSERIAL', NOTNULL => 1, PRIMARYKEY => 1});
@@ -729,6 +730,27 @@ sub update_table_definitions {
     # 2014-08-14 koosha.khajeh@gmail.com - Bug 330707
     $dbh->bz_add_column('longdescs', 'is_markdown',
                         {TYPE => 'BOOLEAN', NOTNULL => 1, DEFAULT => 'FALSE'});
+
+    # 2014-11-18 dylan@mozilla.com - Bug 69267
+    $dbh->bz_add_column('keyworddefs', 'is_active',
+                        {TYPE => 'BOOLEAN', NOTNULL => 1, DEFAULT => 'TRUE'});
+
+    # 2015-07-25 dylan@mozilla.com - Bug 1179856
+    $dbh->bz_alter_column('tokens', 'token',
+                          {TYPE => 'varchar(22)', NOTNULL => 1, PRIMARYKEY => 1});
+    $dbh->bz_alter_column('logincookies', 'cookie',
+                          {TYPE => 'varchar(22)', NOTNULL => 1, PRIMARYKEY => 1});
+
+    # 2015-07-16 LpSolit@gmail.com - Bug 946780
+    $dbh->bz_add_index('bz_schema', 'bz_schema_version_idx',
+                       {FIELDS => ['version'], TYPE => 'UNIQUE'});
+
+    # 2015-12-16 LpSolit@gmail.com - Bug 1232578
+    _sanitize_audit_log_table();
+
+    # 2016-04-27 wurblzap@gmail.com and gerv@gerv.net - Bug 218917
+    # Split login_name into login_name and email columns
+    _split_login_and_email($old_params);
 
     ################################################################
     # New --TABLE-- changes should go *** A B O V E *** this point #
@@ -3914,6 +3936,53 @@ sub _update_alias {
 
     $dbh->bz_drop_column('bugs', 'alias');
 }
+
+sub _sanitize_audit_log_table {
+    my $dbh = Bugzilla->dbh;
+
+    # Replace hashed passwords by a generic comment.
+    my $class = 'Bugzilla::User';
+    my $field = 'cryptpassword';
+
+    my $hashed_passwd =
+      $dbh->selectcol_arrayref('SELECT added FROM audit_log WHERE class = ? AND field = ?
+                                AND ' . $dbh->sql_not_ilike('hashed_with_', 'added'),
+                                undef, ($class, $field));
+    if (@$hashed_passwd) {
+        say "Sanitizing hashed passwords stored in the 'audit_log' table...";
+        my $sth = $dbh->prepare('UPDATE audit_log SET added = ?
+                                 WHERE class = ? AND field = ? AND added = ?');
+
+        foreach my $passwd (@$hashed_passwd) {
+            my (undef, $sanitized_passwd) =
+              Bugzilla::Object::_sanitize_audit_log($class, $field, [undef, $passwd]);
+            $sth->execute($sanitized_passwd, $class, $field, $passwd);
+        }
+    }
+}
+
+sub _split_login_and_email {
+    my ($old_params) = @_;
+    my $dbh = Bugzilla->dbh;
+
+    return if $dbh->bz_column_info('profiles', 'email');
+
+    $dbh->bz_add_column('profiles', 'email',
+                        {TYPE => 'varchar(255)', NOTNULL => 1}, '');
+    $dbh->do('UPDATE profiles SET email = login_name');
+
+    # This change obsoletes the 'emailsuffix' parameter. If it is in use,
+    # append it to all the values in the 'email' column.
+    my $suffix = $old_params->{'emailsuffix'};
+    if ($suffix) {
+        $dbh->do('UPDATE profiles SET email = ' . $dbh->sql_string_concat('email', '?'),
+                 undef, $suffix);
+    }
+
+    $dbh->bz_add_index('profiles', 'profiles_email_idx',
+                       {TYPE => 'UNIQUE', FIELDS => ['email']});
+}
+
 
 1;
 

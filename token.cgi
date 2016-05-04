@@ -6,11 +6,11 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::Constants;
@@ -122,22 +122,22 @@ sub requestChangePassword {
     my $token = $cgi->param('token');
     check_hash_token($token, ['reqpw']);
 
-    my $login_name = $cgi->param('loginname')
-      or ThrowUserError("login_needed_for_password_change");
+    my $email = $cgi->param('email')
+      or ThrowUserError("email_needed_for_password_change");
 
-    check_email_syntax($login_name);
-    my $user = new Bugzilla::User({ name => $login_name });
+    my $userid = email_to_id($email, 'throw_error_if_not_exist');
+    my $user = new Bugzilla::User($userid);
 
     # Make sure the user account is active.
-    if ($user && !$user->is_enabled) {
+    if (!$user->is_enabled) {
         ThrowUserError('account_disabled',
-                       {disabled_reason => get_text('account_disabled', {account => $login_name})});
+                       {disabled_reason => get_text('account_disabled', {email => $email})});
     }
 
-    Bugzilla::Token::IssuePasswordToken($user) if $user;
+    Bugzilla::Token::IssuePasswordToken($user);
 
     $vars->{'message'} = "password_change_request";
-    $vars->{'login_name'} = $login_name;
+    $vars->{'email'} = $email;
 
     print $cgi->header();
     $template->process("global/message.html.tmpl", $vars)
@@ -208,27 +208,24 @@ sub changeEmail {
     my ($old_email, $new_email) = split(/:/,$eventdata);
 
     $dbh->bz_start_transaction();
-    
+
     my $user = Bugzilla::User->check({ id => $userid });
-    my $realpassword = $user->cryptpassword;
     my $cgipassword  = $cgi->param('password');
 
     # Make sure the user who wants to change the email address
     # is the real account owner.
-    if (bz_crypt($cgipassword, $realpassword) ne $realpassword) {
-        ThrowUserError("old_password_incorrect");
-    }
+    $user->check_current_password($cgipassword);
 
     # The new email address should be available as this was 
     # confirmed initially so cancel token if it is not still available
-    if (! is_available_username($new_email,$old_email)) {
+    if (!is_available_email($new_email, $old_email)) {
         $vars->{'email'} = $new_email; # Needed for Bugzilla::Token::Cancel's mail
         Bugzilla::Token::Cancel($token, "account_exists", $vars);
         ThrowUserError("account_exists", { email => $new_email } );
     } 
 
-    # Update the user's login name in the profiles table.
-    $user->set_login($new_email);
+    # Update the user's email address in the profiles table.
+    $user->set_email($new_email);
     $user->update({ keep_session => 1, keep_tokens => 1 });
     delete_token($token);
     $dbh->do(q{DELETE FROM tokens WHERE userid = ?
@@ -259,8 +256,8 @@ sub cancelChangeEmail {
         my $user = Bugzilla::User->check({ id => $userid });
 
         # check to see if it has been altered
-        if ($user->login ne $old_email) {
-            $user->set_login($old_email);
+        if ($user->email ne $old_email) {
+            $user->set_email($old_email);
             $user->update({ keep_tokens => 1 });
 
             $vars->{'message'} = "email_change_canceled_reinstated";
@@ -288,13 +285,20 @@ sub cancelChangeEmail {
 }
 
 sub request_create_account {
-    my ($date, $login_name, $token) = @_;
+    my ($date, $data, $token) = @_;
 
     Bugzilla->user->check_account_creation_enabled;
 
-    $vars->{'token'} = $token;
-    $vars->{'email'} = $login_name . Bugzilla->params->{'emailsuffix'};
-    $vars->{'expiration_ts'} = ctime(str2time($date) + MAX_TOKEN_AGE * 86400);
+    # Be careful! Some logins may contain ":" in them.
+    my ($email, $login) = split(':', $data, 2);
+    $vars = {
+      token => $token,
+      login => $login,
+      email => $email,
+      # Make sure nobody else chose this login meanwhile.
+      login_already_in_use => login_to_id($login) ? 1 : 0,
+      expiration_ts => ctime(str2time($date) + MAX_TOKEN_AGE * 86400)
+    };
 
     print $cgi->header();
     $template->process('account/email/confirm-new.html.tmpl', $vars)
@@ -302,7 +306,7 @@ sub request_create_account {
 }
 
 sub confirm_create_account {
-    my ($login_name, $token) = @_;
+    my ($data, $token) = @_;
 
     Bugzilla->user->check_account_creation_enabled;
 
@@ -311,8 +315,13 @@ sub confirm_create_account {
     # Make sure that these never show up anywhere in the UI.
     $cgi->delete('passwd1', 'passwd2');
 
+    # Be careful! Some logins may contain ":" in them.
+    my ($email, $login) = split(':', $data, 2);
+    $login = $cgi->param('login') if login_to_id($login);
+
     my $otheruser = Bugzilla::User->create({
-        login_name => $login_name, 
+        login_name => $login,
+        email      => $email,
         realname   => scalar $cgi->param('realname'),
         cryptpassword => $password});
 
@@ -335,10 +344,11 @@ sub confirm_create_account {
 }
 
 sub cancel_create_account {
-    my ($login_name, $token) = @_;
+    my ($data, $token) = @_;
 
     $vars->{'message'} = 'account_creation_canceled';
-    $vars->{'account'} = $login_name;
+    # Be careful! Some logins may contain ":" in them.
+    ($vars->{'email'}, $vars->{'login'}) = split(':', $data, 2);
     Bugzilla::Token::Cancel($token, $vars->{'message'});
 
     print $cgi->header();

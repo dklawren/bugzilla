@@ -10,11 +10,11 @@
 #Bugzilla Test 10#
 ## dependencies ##
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib t);
+use lib qw(. lib local/lib/perl5 t);
 
 use Support::Files;
 use Test::More qw(no_plan);

@@ -6,11 +6,11 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::BugMail;
@@ -37,8 +37,6 @@ sub DoAccount {
     my $dbh = Bugzilla->dbh;
     my $user = Bugzilla->user;
 
-    $vars->{'realname'} = $user->name;
-
     if (Bugzilla->params->{'allowemailchange'}
         && $user->authorizer->can_change_email)
     {
@@ -55,11 +53,11 @@ sub DoAccount {
            ORDER BY tokentype ASC " . $dbh->sql_limit(1), undef, $user->id);
         if (scalar(@token) > 0) {
             my ($tokentype, $change_date, $eventdata) = @token;
-            $vars->{'login_change_date'} = $change_date;
+            $vars->{'email_change_date'} = $change_date;
 
             if($tokentype eq 'emailnew') {
                 my ($oldemail,$newemail) = split(/:/,$eventdata);
-                $vars->{'new_login_name'} = $newemail;
+                $vars->{'new_email'} = $newemail;
             }
         }
     }
@@ -74,56 +72,70 @@ sub SaveAccount {
     my $user = Bugzilla->user;
 
     my $oldpassword = $cgi->param('old_password');
+    my $verified_password;
     my $pwd1 = $cgi->param('new_password1');
     my $pwd2 = $cgi->param('new_password2');
-    my $new_login_name = trim($cgi->param('new_login_name'));
+    my $new_login = clean_text(scalar $cgi->param('new_login'));
+    my $new_email = clean_text(scalar $cgi->param('new_email'));
 
     if ($user->authorizer->can_change_password
-        && ($oldpassword ne "" || $pwd1 ne "" || $pwd2 ne ""))
+        && ($pwd1 ne "" || $pwd2 ne ""))
     {
-        my $oldcryptedpwd = $user->cryptpassword;
-        $oldcryptedpwd || ThrowCodeError("unable_to_retrieve_password");
+        $user->check_current_password($oldpassword);
+        $verified_password = 1;
 
-        if (bz_crypt($oldpassword, $oldcryptedpwd) ne $oldcryptedpwd) {
-            ThrowUserError("old_password_incorrect");
-        }
+        $pwd1 || ThrowUserError("new_password_missing");
+        validate_password($pwd1, $pwd2);
 
-        if ($pwd1 ne "" || $pwd2 ne "") {
-            $pwd1 || ThrowUserError("new_password_missing");
-            validate_password($pwd1, $pwd2);
-
-            if ($oldpassword ne $pwd1) {
-                $user->set_password($pwd1);
-                # Invalidate all logins except for the current one
-                Bugzilla->logout(LOGOUT_KEEP_CURRENT);
-            }
+        if ($oldpassword ne $pwd1) {
+            $user->set_password($pwd1);
+            # Invalidate all logins except for the current one
+            Bugzilla->logout(LOGOUT_KEEP_CURRENT);
         }
     }
 
+    # This is used only if email and login are separate
+    if ($user->authorizer->can_change_login
+        && !Bugzilla->params->{"use_email_as_login"}
+        && $new_login
+        && $user->login ne $new_login)
+    {
+        $verified_password || $user->check_current_password($oldpassword);
+
+        if ($new_login =~ /@/ &&
+            $new_login ne $user->email)
+        {
+            ThrowUserError("login_at_sign_disallowed");
+        }
+
+        if (Bugzilla::Token::HasEmailChangeToken($user->id)) {
+            ThrowUserError("login_change_during_email_change");
+        }
+
+        $user->set_login($new_login);
+    }
+
+    # This is used for the single value if use_email_as_login is true, or for
+    # the email address otherwise.
     if ($user->authorizer->can_change_email
         && Bugzilla->params->{"allowemailchange"}
-        && $new_login_name)
+        && $new_email
+        && $user->email ne $new_email)
     {
-        if ($user->login ne $new_login_name) {
-            $oldpassword || ThrowUserError("old_password_required");
+        $verified_password || $user->check_current_password($oldpassword);
 
-            # Block multiple email changes for the same user.
-            if (Bugzilla::Token::HasEmailChangeToken($user->id)) {
-                ThrowUserError("email_change_in_progress");
-            }
-
-            # Before changing an email address, confirm one does not exist.
-            check_email_syntax($new_login_name);
-            is_available_username($new_login_name)
-              || ThrowUserError("account_exists", {email => $new_login_name});
-
-            Bugzilla::Token::IssueEmailChangeToken($user, $new_login_name);
-
-            $vars->{'email_changes_saved'} = 1;
+        # Block multiple email changes for the same user.
+        if (Bugzilla::Token::HasEmailChangeToken($user->id)) {
+            ThrowUserError("email_change_in_progress");
         }
-    }
 
-    $user->set_name($cgi->param('realname'));
+        # Before changing to an email address, confirm it does not exist.
+        $user->check_email($new_email);
+
+        $vars->{'email_token'} = Bugzilla::Token::IssueEmailChangeToken($new_email);
+        $vars->{'email_changes_saved'} = 1;
+    }
+    $user->set_name(scalar $cgi->param('realname'));
     $user->update({ keep_session => 1, keep_tokens => 1 });
     $dbh->bz_commit_transaction;
 }
@@ -135,7 +147,7 @@ sub DoSettings {
     my $settings = $user->settings;
     $vars->{'settings'} = $settings;
 
-    my @setting_list = keys %$settings;
+    my @setting_list = sort keys %$settings;
     $vars->{'setting_names'} = \@setting_list;
 
     $vars->{'has_settings_enabled'} = 0;
@@ -307,7 +319,7 @@ sub SaveEmail {
         }
 
         if (defined $cgi->param('remove_watched_users')) {
-            my @removed = $cgi->param('watched_by_you');
+            my @removed = $cgi->multi_param('watched_by_you');
             # Remove people who were removed.
             my $delete_sth = $dbh->prepare('DELETE FROM watch WHERE watched = ?'
                                          . ' AND watcher = ?');
@@ -337,8 +349,8 @@ sub SaveEmail {
     map { $ignored_bugs{$_} = 1 } @add_ignored;
 
     # Remove any bug ids the user no longer wants to ignore
-    foreach my $key (grep(/^remove_ignored_bug_/, $cgi->param)) {
-        my ($bug_id) = $key =~ /(\d+)$/;
+    foreach my $key (grep(/^remove_ignored_bug_/, $cgi->multi_param())) {
+        my ($bug_id) = $key =~ /(\d+)$/a;
         delete $ignored_bugs{$bug_id};
     }
 

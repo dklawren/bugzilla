@@ -11,11 +11,11 @@
 #Bugzilla Test 12#
 ######Errors######
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib t);
+use lib qw(. lib local/lib/perl5 t);
 
 use Bugzilla::Constants;
 use Bugzilla::WebService::Constants;

@@ -10,7 +10,7 @@
 # a new bug into bugzilla. Everything before the beginning <?xml line
 # is removed so you can pipe in email messages.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -46,7 +46,7 @@ BEGIN {
     chdir(File::Basename::dirname($dir));
 }
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 # Data dumber is used for debugging, I got tired of copying it back in 
 # and then removing it. 
 #use Data::Dumper;
@@ -1275,6 +1275,9 @@ my $twig = XML::Twig->new(
     },
     start_tag_handlers => { bugzilla => \&init }
 );
+# Prevent DoS using the billion laughs attack.
+$twig->{NoExpand} = 1;
+
 $twig->parse($xml);
 my $root       = $twig->root;
 my $maintainer = $root->{'att'}->{'maintainer'};

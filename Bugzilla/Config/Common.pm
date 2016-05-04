@@ -7,7 +7,7 @@
 
 package Bugzilla::Config::Common;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -29,6 +29,8 @@ use parent qw(Exporter);
        check_bug_status check_smtp_auth check_theschwartz_available
        check_maxattachmentsize check_email check_smtp_ssl
        check_comment_taggers_group check_smtp_server check_resolution
+
+       change_use_email_as_login change_duplicate_or_move_bug_status
 );
 
 # Checking functions for the various values
@@ -44,7 +46,10 @@ sub check_multi {
         return "";
     }
     elsif ($param->{'type'} eq 'm' || $param->{'type'} eq 'o') {
-        foreach my $chkParam (split(',', $value)) {
+        if (ref($value) ne "ARRAY") {
+            $value = [split(',', $value)]
+        }
+        foreach my $chkParam (@$value) {
             unless (scalar(grep {$_ eq $chkParam} (@{$param->{'choices'}}))) {
                 return "Invalid choice '$chkParam' for multi-select list param '$param->{'name'}'";
             }
@@ -252,7 +257,7 @@ sub check_mail_delivery_method {
     my $check = check_multi(@_);
     return $check if $check;
     my $mailer = shift;
-    if ($mailer eq 'sendmail' and ON_WINDOWS) {
+    if ($mailer eq 'Sendmail' and ON_WINDOWS) {
         # look for sendmail.exe 
         return "Failed to locate " . SENDMAIL_EXE
             unless -e SENDMAIL_EXE;
@@ -298,6 +303,8 @@ sub check_notification {
 sub check_smtp_server {
     my $host = shift;
     my $port;
+
+    return '' unless $host;
 
     if ($host =~ /:/) {
         ($host, $port) = split(/:/, $host, 2);
@@ -357,18 +364,36 @@ sub check_comment_taggers_group {
     return check_group($group_name);
 }
 
+# Change handler functions for various parameters
+
+# If use_email_as_login is turned on, update all login names to be email
+# addresses.
+sub change_use_email_as_login {
+    my $newvalue = shift;
+    if ($newvalue) {
+        Bugzilla->dbh->do('UPDATE profiles SET login_name = email');
+    }
+}
+
+sub change_duplicate_or_move_bug_status {
+    my $newvalue = shift;
+    Bugzilla::Status::add_missing_bug_status_transitions($newvalue);
+}
+
 # OK, here are the parameter definitions themselves.
 #
 # Each definition is a hash with keys:
 #
-# name    - name of the param
-# desc    - description of the param (for editparams.cgi)
-# type    - see below
-# choices - (optional) see below
-# default - default value for the param
-# checker - (optional) checking function for validating parameter entry
-#           It is called with the value of the param as the first arg and a
-#           reference to the param's hash as the second argument
+# name     - name of the param
+# desc     - description of the param (for editparams.cgi)
+# type     - see below
+# choices  - (optional) see below
+# default  - default value for the param
+# checker  - (optional) checking function for validating parameter entry.
+#            It is called with the value of the param as the first arg
+#            and a reference to the param's hash as the second argument.
+# onchange - (optional) handling function for parameter changes.
+#            The argument is the new value of the param.
 #
 # The type value can be one of the following:
 #
@@ -396,11 +421,6 @@ sub check_comment_taggers_group {
 #      &check_multi should always be used as the param verification function
 #      for list (single and multiple) parameter types.
 #
-# o -- A list of values, orderable, and with many selectable (shows up as a
-#      JavaScript-enhanced select box if JavaScript is enabled, and a text
-#      entry field if not)
-#      Set up in the same way as type m.
-#
 # s -- A list of values, with one selectable (shows up as a select box)
 #      To specify the list of values, make the 'choices' key be an array
 #      reference of the valid choices. The 'default' key should be one of
@@ -419,6 +439,13 @@ sub check_comment_taggers_group {
 #
 #      &check_multi should always be used as the param verification function
 #      for list (single and multiple) parameter types.
+#
+# o -- A list of values, orderable, and with many selectable (shows up as a
+#      JavaScript-enhanced select box if JavaScript is enabled, and a text
+#      entry field if not)
+#      Set up in the same way as type s. If the default has multiple values,
+#      then they must be concatenated, separated by a comma.
+#      For instance: default => 'a,c'.
 
 sub get_param_list {
     return;
@@ -459,6 +486,17 @@ Checks that the value is a valid regexp
 
 Checks that the required modules for comment tagging are installed, and that a
 valid group is provided.
+
+=item C<change_use_email_as_login>
+
+Change handler for "use_email_as_login" parameter - if param is changed to
+true, updates login_name field to be the value of the email field for all
+users.
+
+=item C<change_duplicate_or_move_bug_status>
+
+Change handler for "duplicate_or_move_bug_status" parameter - if param is
+changed, insert all missing transitions to the new bug status.
 
 =back
 

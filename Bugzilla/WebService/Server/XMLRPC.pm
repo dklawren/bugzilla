@@ -7,7 +7,7 @@
 
 package Bugzilla::WebService::Server::XMLRPC;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -35,11 +35,13 @@ BEGIN {
             $value = Bugzilla::WebService::Server->datetime_format_outbound($value);
             $value =~ s/-//g;
         }
+        elsif ($type eq 'login') {
+            $type = 'string';
+            $value = email_filter($value) if Bugzilla->params->{'use_email_as_login'};
+        }
         elsif ($type eq 'email') {
             $type = 'string';
-            if (Bugzilla->params->{'webservice_email_filter'}) {
-                $value = email_filter($value);
-            }
+            $value = '' unless Bugzilla->user->in_group('editusers');
         }
         return XMLRPC::Data->type($type)->value($value);
     };
@@ -62,6 +64,12 @@ sub initialize {
 sub make_response {
     my $self = shift;
     my $cgi = Bugzilla->cgi;
+
+    # Fix various problems with IIS.
+    if ($ENV{'SERVER_SOFTWARE'} =~ /IIS/) {
+        $ENV{CONTENT_LENGTH} = 0;
+        binmode(STDOUT, ':bytes');
+    }
 
     $self->SUPER::make_response(@_);
 
@@ -110,6 +118,8 @@ sub handle_login {
     if (none { $_ eq $method } $class->PUBLIC_METHODS) {
         ThrowCodeError('unknown_method', { method => $full_method });
     }
+
+    $ENV{CONTENT_LENGTH} = 0 if $ENV{'SERVER_SOFTWARE'} =~ /IIS/;
     $self->SUPER::handle_login($class, $method, $full_method);
     return;
 }
@@ -120,7 +130,7 @@ sub handle_login {
 # and also, in some cases, to more-usefully decode them.
 package Bugzilla::XMLRPC::Deserializer;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -133,6 +143,15 @@ use Bugzilla::Error;
 use Bugzilla::WebService::Constants qw(XMLRPC_CONTENT_TYPE_WHITELIST);
 use Bugzilla::WebService::Util qw(fix_credentials);
 use Scalar::Util qw(tainted);
+
+sub new {
+    my $self = shift->SUPER::new(@_);
+    # Initialise XML::Parser to not expand references to entities, to prevent DoS
+    require XML::Parser;
+    my $parser = XML::Parser->new( NoExpand => 1, Handlers => { Default => sub {} } );
+    $self->{_parser}->parser($parser, $parser);
+    return $self;
+}
 
 sub deserialize {
     my $self = shift;
@@ -226,7 +245,7 @@ sub _validation_subs {
 
 package Bugzilla::XMLRPC::SOM;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -253,7 +272,7 @@ sub paramsin {
 # See http://rt.cpan.org/Public/Bug/Display.html?id=32952.
 package Bugzilla::XMLRPC::Serializer;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 

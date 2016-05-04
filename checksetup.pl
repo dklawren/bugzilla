@@ -12,13 +12,13 @@
 # Initialization
 ######################################################################
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
 use File::Basename;
 BEGIN { chdir dirname($0); }
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Getopt::Long qw(:config bundling);
 use Pod::Usage;
@@ -41,18 +41,13 @@ Bugzilla::Install::Util::no_checksetup_from_cgi() if $ENV{'SERVER_SOFTWARE'};
 init_console();
 
 my %switch;
-GetOptions(\%switch, 'help|h|?', 'check-modules', 'cpanfile',
+GetOptions(\%switch, 'help|h|?',
                      'no-templates|t', 'verbose|v|no-silent',
-                     'make-admin=s', 'reset-password=s', 'version|V');
+                     'make-admin=s', 'reset-password=s', 'version|V',
+                     'no-permissions|p');
 
 # Print the help message if that switch was selected.
 pod2usage({-verbose => 1, -exitval => 1}) if $switch{'help'};
-
-# Export cpanfile and exit
-if ($switch{cpanfile}) {
-    export_cpanfile();
-    exit;
-}
 
 # Read in the "answers" file if it exists, for running in 
 # non-interactive mode.
@@ -63,11 +58,7 @@ print(install_string('header', get_version_and_os()) . "\n") unless $silent;
 exit 0 if $switch{'version'};
 # Check required --MODULES--
 my $module_results = check_requirements(!$silent);
-Bugzilla::Install::Requirements::print_module_instructions(
-    $module_results, !$silent);
-exit 1 if !$module_results->{pass};
 # Break out if checking the modules is all we have been asked to do.
-exit 0 if $switch{'check-modules'};
 
 ###########################################################################
 # Load Bugzilla Modules
@@ -150,7 +141,7 @@ Bugzilla::Template::precompile_templates(!$silent)
 # Set proper rights (--CHMOD--)
 ###########################################################################
 
-fix_all_file_permissions(!$silent);
+fix_all_file_permissions(!$silent) unless $switch{'no-permissions'};
 
 ###########################################################################
 # Check GraphViz setup
@@ -244,7 +235,7 @@ checksetup.pl - A do-it-all upgrade and installation script for Bugzilla.
 
 =head1 SYNOPSIS
 
- ./checksetup.pl [--help|--check-modules|--version]
+ ./checksetup.pl [--help|--version]
  ./checksetup.pl [SCRIPT [--verbose]] [--no-templates|-t]
                  [--make-admin=user@domain.com]
                  [--reset-password=user@domain.com]
@@ -264,16 +255,6 @@ the L</"RUNNING CHECKSETUP NON-INTERACTIVELY"> section.
 =item B<--help>
 
 Display this help text
-
-=item B<--cpanfile>
-
-Outputs a cpanfile in the document root listing the current and optional
-modules with their respective versions. This file can be used by <cpanm>
-and other utilities used to install Perl dependencies.
-
-=item B<--check-modules>
-
-Only check for correct module dependencies and quit afterward.
 
 =item B<--make-admin>=username@domain.com
 
@@ -300,6 +281,12 @@ Output results of SCRIPT being processed.
 
 Display the version of Bugzilla, Perl, and some info about the
 system that Bugzilla is being installed on, and then exit.
+
+=item B<--no-permissions> (B<-p>)
+
+Don't update file permissions. Owner, group, and mode of files and
+directories will not be changed. Use this if your installation is
+managed by a software packaging system such as RPM or APT.
 
 =back
 
@@ -474,11 +461,10 @@ The format of that file is as follows:
 
  (Any localconfig variable or parameter can be specified as above.)
 
+ $answer{'ADMIN_LOGIN'} = 'myadmin';
  $answer{'ADMIN_EMAIL'} = 'myadmin@mydomain.net';
  $answer{'ADMIN_PASSWORD'} = 'fooey';
  $answer{'ADMIN_REALNAME'} = 'Joel Peshkin';
-
- $answer{'SMTP_SERVER'} = 'mail.mydomain.net';
 
  $answer{'NO_PAUSE'} = 1
 

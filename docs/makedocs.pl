@@ -1,4 +1,4 @@
-#!/usr/bin/perl -w
+#!/usr/bin/perl
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
@@ -23,38 +23,24 @@
 # All these TeX packages together are close to a gig :-| But after you've
 # installed them, you can remove texlive-latex-extra-doc to save 400MB.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
+use warnings;
+
+use File::Basename;
+BEGIN { chdir dirname($0); }
+
+use lib qw(.. ../lib lib ../local/lib/perl5);
 
 use Cwd;
-use File::Find;
-use File::Basename;
 use File::Copy::Recursive qw(rcopy);
-
-# We need to be in this directory to use our libraries.
-BEGIN {
-    require File::Basename;
-    import File::Basename qw(dirname);
-    chdir dirname($0);
-}
-
-use lib qw(.. ../lib lib);
-
-# We only compile our POD if Pod::Simple is installed. We do the checks
-# this way so that if there's a compile error in Pod::Simple::HTML::Bugzilla,
-# makedocs doesn't just silently fail, but instead actually tells us there's
-# a compile error.
-my $pod_simple;
-if (eval { require Pod::Simple }) {
-    require Pod::Simple::HTMLBatch::Bugzilla;
-    require Pod::Simple::HTML::Bugzilla;
-    $pod_simple = 1;
-};
+use File::Path qw(rmtree make_path);
+use File::Which qw(which);
+use Pod::Simple;
 
 use Bugzilla::Constants qw(BUGZILLA_VERSION bz_locations);
-
-use File::Path qw(rmtree);
-use File::Which qw(which);
+use Pod::Simple::HTMLBatch::Bugzilla;
+use Pod::Simple::HTML::Bugzilla;
 
 ###############################################################################
 # Subs
@@ -65,8 +51,7 @@ sub MakeDocs {
     my ($name, $cmdline) = @_;
 
     say "Creating $name documentation ..." if defined $name;
-    say "$cmdline\n";
-    system($cmdline) == 0
+    system('make', $cmdline) == 0
         or $error_found = 1;
     print "\n";
 }
@@ -96,12 +81,11 @@ END_HTML
 
     $converter->contents_page_start($contents_start);
     $converter->contents_page_end("</body></html>");
-    $converter->add_css('./../../../style.css');
+    $converter->add_css('./../../../../style.css');
     $converter->javascript_flurry(0);
     $converter->css_flurry(0);
-    mkdir("html");
-    mkdir("html/api");
-    $converter->batch_convert(['../../'], 'html/api/');
+    make_path('html/integrating/api');
+    $converter->batch_convert(['../../'], 'html/integrating/api');
 
     print "\n";
 }
@@ -125,49 +109,20 @@ my $docparent = getcwd();
 foreach my $lang (@langs) {
     chdir "$docparent/$lang";
 
-    make_pod() if $pod_simple;
+    make_pod();
 
     next if grep { $_ eq '--pod-only' } @ARGV;
 
-    chdir $docparent;
-
-    # Generate extension documentation, both normal and API
-    my $ext_dir = bz_locations()->{'extensionsdir'};
-    my @ext_paths = grep { $_ !~ /\/create\.pl$/ && ! -e "$_/disabled" }
-                    glob("$ext_dir/*");
-    my %extensions;
-    foreach my $item (@ext_paths) {
-        my $basename = basename($item);
-        if (-d "$item/docs/$lang/rst") {
-            $extensions{$basename} = "$item/docs/$lang/rst";
-        }
-    }
-
-    # Collect up local extension documentation into the extensions/ dir.
-    # Clear out old extensions docs
-    # For the life of me, I cannot get rmtree() to work here. It just returns
-    # silently without deleting anything - no errors.
-    system("rm -rf $lang/rst/extensions/*");
-
-    foreach my $ext_name (keys %extensions) {
-        my $src = $extensions{$ext_name} . "/*";
-        my $dst = "$docparent/$lang/rst/extensions/$ext_name";
-        mkdir($dst) unless -d $dst;
-        rcopy($src, $dst);
-    }
-
-    chdir "$docparent/$lang";
-
-    MakeDocs('HTML', 'make html');
-    MakeDocs('TXT', 'make text');
+    MakeDocs('HTML', 'html');
+    MakeDocs('TXT', 'text');
 
     if (grep { $_ eq '--with-pdf' } @ARGV) {
         if (which('pdflatex')) {
-            MakeDocs('PDF', 'make latexpdf');
+            MakeDocs('PDF', 'latexpdf');
         }
         elsif (which('rst2pdf')) {
             rmtree('pdf', 0, 1);
-            MakeDocs('PDF', 'make pdf');
+            MakeDocs('PDF', 'pdf');
         }
         else {
             say 'pdflatex or rst2pdf not found. Skipping PDF file creation';

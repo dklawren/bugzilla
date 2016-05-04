@@ -6,11 +6,11 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::Constants;
@@ -67,11 +67,12 @@ if ($action eq 'search') {
 ###########################################################################
 } elsif ($action eq 'list') {
     my $matchvalue    = $cgi->param('matchvalue') || '';
-    my $matchstr      = trim($cgi->param('matchstr'));
+    my $matchstr      = trim(scalar $cgi->param('matchstr'));
     my $matchtype     = $cgi->param('matchtype');
     my $grouprestrict = $cgi->param('grouprestrict') || '0';
-    my $is_enabled    = scalar $cgi->param('is_enabled');
-    my $query = 'SELECT DISTINCT userid, login_name, realname, is_enabled, ' .
+    # 0 = disabled only, 1 = enabled only, 2 = everyone
+    my $is_enabled    = $cgi->param('is_enabled') // 2;
+    my $query = 'SELECT DISTINCT userid, login_name, email, realname, is_enabled, ' .
                 $dbh->sql_date_format('last_seen_date', '%Y-%m-%d') . ' AS last_seen_date ' .
                 'FROM profiles';
     my @bindValues;
@@ -97,7 +98,8 @@ if ($action eq 'search') {
                         };
             $nextCondition = 'AND';
         }
-    } else {
+    }
+    else {
         $visibleGroups = 1;
         if ($grouprestrict eq '1') {
             $query .= qq{, user_group_map AS ugm
@@ -115,10 +117,10 @@ if ($action eq 'search') {
         $vars->{'users'} = {};
     }
     else {
-        # Handle selection by login name, real name, or userid.
+        # Handle selection by login name, email, real name, or userid.
         if (defined($matchtype)) {
             $query .= " $nextCondition ";
-            my $expr = "";
+            my $expr = '';
             if ($matchvalue eq 'userid') {
                 if ($matchstr) {
                     my $stored_matchstr = $matchstr;
@@ -126,6 +128,8 @@ if ($action eq 'search') {
                         || ThrowUserError('illegal_user_id', {userid => $stored_matchstr});
                 }
                 $expr = "profiles.userid";
+            } elsif ($matchvalue eq 'email') {
+                $expr = 'profiles.email';
             } elsif ($matchvalue eq 'realname') {
                 $expr = "profiles.realname";
             } else {
@@ -163,11 +167,12 @@ if ($action eq 'search') {
         }
 
         detaint_natural($is_enabled);
-        if ($is_enabled == 0 || $is_enabled == 1) {
+        if ($is_enabled && ($is_enabled == 0 || $is_enabled == 1)) {
             $query .= " $nextCondition profiles.is_enabled = ?";
             $nextCondition = 'AND';
             push(@bindValues, $is_enabled);
         }
+
         $query .= ' ORDER BY profiles.login_name';
 
         $vars->{'users'} = $dbh->selectall_arrayref($query,
@@ -180,7 +185,8 @@ if ($action eq 'search') {
         my $match_user_id = $vars->{'users'}[0]->{'userid'};
         my $match_user = check_user($match_user_id);
         edit_processing($match_user);
-    } else {
+    }
+    else {
         $template->process('admin/users/list.html.tmpl', $vars)
             || ThrowTemplateError($template->error());
     }
@@ -209,8 +215,14 @@ if ($action eq 'search') {
     my $password = $cgi->param('password');
     $password = '*' if !defined $password;
 
+    my $login_name = $cgi->param('login');
+    my $email      = $cgi->param('email');
+
+    $login_name = $email if Bugzilla->params->{use_email_as_login};
+
     my $new_user = Bugzilla::User->create({
-        login_name    => scalar $cgi->param('login'),
+        login_name    => $login_name,
+        email         => $email,
         cryptpassword => $password,
         realname      => scalar $cgi->param('name'),
         disabledtext  => scalar $cgi->param('disabledtext'),
@@ -266,14 +278,16 @@ if ($action eq 'search') {
     # is not authorized.
     my $changes = {};
     if ($editusers) {
-        $otherUser->set_login($cgi->param('login'));
-        $otherUser->set_name($cgi->param('name'));
-        $otherUser->set_password($cgi->param('password'))
+        $otherUser->set_login(scalar $cgi->param('login'))
+            unless Bugzilla->params->{use_email_as_login};
+        $otherUser->set_email(scalar $cgi->param('email'));
+        $otherUser->set_name(scalar $cgi->param('name'));
+        $otherUser->set_password(scalar $cgi->param('password'))
             if $cgi->param('password');
-        $otherUser->set_disabledtext($cgi->param('disabledtext'));
-        $otherUser->set_disable_mail($cgi->param('disable_mail'));
-        $otherUser->set_extern_id($cgi->param('extern_id'))
-            if defined($cgi->param('extern_id'));
+        $otherUser->set_disabledtext(scalar $cgi->param('disabledtext'));
+        $otherUser->set_disable_mail(scalar $cgi->param('disable_mail'));
+        $otherUser->set_extern_id(scalar $cgi->param('extern_id'))
+            if defined $cgi->param('extern_id');
 
         # Update bless groups
         my @bless_ids = grep { s/bless_// } keys %{ Bugzilla->cgi->Vars };

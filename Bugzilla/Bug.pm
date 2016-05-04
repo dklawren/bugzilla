@@ -7,7 +7,7 @@
 
 package Bugzilla::Bug;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -177,6 +177,7 @@ sub VALIDATOR_DEPENDENCIES {
         if $cache->{bug_validator_dependencies};
 
     my %deps = (
+        alias            => ['product'],
         assigned_to      => ['component'],
         blocked          => ['product'],
         bug_status       => ['product', 'comment', 'target_milestone'],
@@ -303,6 +304,9 @@ sub new {
     my $invocant = shift;
     my $class = ref($invocant) || $invocant;
     my $param = shift;
+
+    # Let's not be abused by pseudo-numbers.
+    use re '/a';
 
     # Remove leading "#" mark if we've just been passed an id.
     if (!ref $param && $param =~ /^#(\d+)$/) {
@@ -505,59 +509,73 @@ sub preload {
     # to the more complex method.
     my @all_dep_ids;
     foreach my $bug (@$bugs) {
-        push(@all_dep_ids, @{ $bug->blocked }, @{ $bug->dependson });
-        push(@all_dep_ids, @{ $bug->duplicate_ids });
+        push @all_dep_ids, @{ $bug->blocked }, @{ $bug->dependson };
+        push @all_dep_ids, @{ $bug->duplicate_ids };
+        push @all_dep_ids, @{ $bug->_preload_referenced_bugs };
     }
     @all_dep_ids = uniq @all_dep_ids;
     # If we don't do this, can_see_bug will do one call per bug in
     # the dependency and duplicate lists, in Bugzilla::Template::get_bug_link.
     $user->visible_bugs(\@all_dep_ids);
-
-    foreach my $bug (@$bugs) {
-        $bug->_preload_referenced_bugs();
-    }
 }
 
 # Helps load up bugs referenced in comments by retrieving them with a single
 # query from the database and injecting bug objects into the object-cache.
 sub _preload_referenced_bugs {
     my $self = shift;
-    my @referenced_bug_ids;
 
     # inject current duplicates into the object-cache first
     foreach my $bug (@{ $self->duplicates }) {
-        $bug->object_cache_set()
-            unless Bugzilla::Bug->object_cache_get($bug->id);
+        $bug->object_cache_set() unless Bugzilla::Bug->object_cache_get($bug->id);
     }
 
     # preload bugs from comments
-    require Bugzilla::Template;
-    foreach my $comment (@{ $self->comments }) {
-        if ($comment->type == CMT_HAS_DUPE || $comment->type == CMT_DUPE_OF) {
-            # duplicate bugs that aren't currently in $self->duplicates
-            push @referenced_bug_ids, $comment->extra_data
-                unless Bugzilla::Bug->object_cache_get($comment->extra_data);
-        }
-        else {
-            # bugs referenced in comments
-            Bugzilla::Template::quoteUrls($comment->body, undef, undef, undef,
-                sub {
-                    my $bug_id = $_[0];
-                    push @referenced_bug_ids, $bug_id
-                        unless Bugzilla::Bug->object_cache_get($bug_id);
-                });
-        }
-    }
+    my $referenced_bug_ids = _extract_bug_ids($self->comments);
+    my @ref_bug_ids = grep { !Bugzilla::Bug->object_cache_get($_) } @$referenced_bug_ids;
 
     # inject into object-cache
-    my $referenced_bugs = Bugzilla::Bug->new_from_list(
-        [ uniq @referenced_bug_ids ]);
-    foreach my $bug (@$referenced_bugs) {
-        $bug->object_cache_set();
-    }
+    my $referenced_bugs = Bugzilla::Bug->new_from_list(\@ref_bug_ids);
+    $_->object_cache_set() foreach @$referenced_bugs;
 
-    # preload bug visibility
-    Bugzilla->user->visible_bugs(\@referenced_bug_ids);
+    return $referenced_bug_ids;
+}
+
+# Extract bug IDs mentioned in comments. This is much faster than calling quoteUrls().
+sub _extract_bug_ids {
+    my $comments = shift;
+    my @bug_ids;
+
+    # Let's not be abused by pseudo-numbers.
+    use re '/a';
+
+    my $params = Bugzilla->params;
+    my @urlbases = ($params->{'urlbase'});
+    push(@urlbases, $params->{'sslbase'}) if $params->{'sslbase'};
+    my $urlbase_re = '(?:' . join('|', map { qr/$_/ } @urlbases) . ')';
+    my $bug_word = template_var('terms')->{bug};
+    my $bugs_word = template_var('terms')->{bugs};
+
+    foreach my $comment (@$comments) {
+        if ($comment->type == CMT_HAS_DUPE || $comment->type == CMT_DUPE_OF) {
+            push @bug_ids, $comment->extra_data;
+            next;
+        }
+        my $s = $comment->already_wrapped ? qr/\s/ : qr/\h/;
+        my $text = $comment->body;
+        # Full bug links
+        push @bug_ids, $text =~ /\b$urlbase_re\Qshow_bug.cgi?id=\E(\d+)(?:\#c\d+)?/g;
+        # bug X
+        my $bug_re = qr/\Q$bug_word\E$s*\#?$s*(\d+)/i;
+        push @bug_ids, $text =~ /\b$bug_re/g;
+        # bugs X, Y, Z
+        my $bugs_re = qr/\Q$bugs_word\E$s*\#?$s*(\d+)(?:$s*,$s*\#?$s*(\d+))+/i;
+        push @bug_ids, $text =~ /\b$bugs_re/g;
+        # Old duplicate markers
+        push @bug_ids, $text =~ /(?<=^\*\*\*\ This\ bug\ has\ been\ marked\ as\ a\ duplicate\ of\ )(\d+)(?=\ \*\*\*\Z)/;
+    }
+    # Make sure to filter invalid bug IDs.
+    @bug_ids = grep { $_ < MAX_INT_32 } @bug_ids;
+    return [uniq @bug_ids];
 }
 
 sub possible_duplicates {
@@ -677,6 +695,7 @@ sub possible_duplicates {
 #                     user is not a member of the timetrackinggroup.
 # C<deadline>       - For time-tracking. Will be ignored for the same
 #                     reasons as C<estimated_time>.
+# C<flags>        - An array of flags that will be applied to the bug.
 sub create {
     my ($class, $params) = @_;
     my $dbh = Bugzilla->dbh;
@@ -711,6 +730,8 @@ sub create {
     my $creation_comment = delete $params->{comment};
     my $is_markdown      = delete $params->{is_markdown};
     my $see_also         = delete $params->{see_also};
+    my $comment_tags     = delete $params->{comment_tags};
+    my $flags            = delete $params->{flags};
 
     # We don't want the bug to appear in the system until it's correctly
     # protected by groups.
@@ -793,6 +814,15 @@ sub create {
         delete $bug->{_update_ref_bugs};
     }
 
+    # Apply any flags.
+    if (defined $flags) {
+        $bug->set_flags($flags);
+        foreach my $flag (@{$bug->flags}) {
+            Bugzilla::Flag->create($flag);
+        }
+        delete $bug->{flag_types}; # cause flag_types to be reloaded with newly created flags
+    }
+
     # Comment #0 handling...
 
     # We now have a bug id so we can fill this out
@@ -801,7 +831,16 @@ sub create {
 
     # Insert the comment. We always insert a comment on bug creation,
     # but sometimes it's blank.
-    Bugzilla::Comment->insert_create_data($creation_comment);
+    my $comment = Bugzilla::Comment->insert_create_data($creation_comment);
+
+    # Add comment tags
+    if (defined $comment_tags && Bugzilla->user->can_tag_comments) {
+        $comment_tags = ref $comment_tags ? $comment_tags : [ $comment_tags ];
+        foreach my $tag (@{$comment_tags}) {
+            $comment->add_tag($tag) if defined $tag;
+        }
+        $comment->update();
+    }
 
     # Set up aliases
     my $sth_aliases = $dbh->prepare('INSERT INTO bugs_aliases (alias, bug_id) VALUES (?, ?)');
@@ -1030,7 +1069,7 @@ sub update {
                                    join(', ', @added_names)];
     }
 
-    # Comments
+    # Comments and comment tags
     foreach my $comment (@{$self->{added_comments} || []}) {
         # Override the Comment's timestamp to be identical to the update
         # timestamp.
@@ -1040,6 +1079,10 @@ sub update {
             LogActivityEntry($self->id, "work_time", "", $comment->work_time,
                              $user->id, $delta_ts);
         }
+        foreach my $tag (@{$self->{added_comment_tags} || []}) {
+            $comment->add_tag($tag) if defined $tag;
+        }
+        $comment->update() if @{$self->{added_comment_tags} || []};
     }
 
     # Comment Privacy 
@@ -1363,11 +1406,23 @@ sub _send_bugmail {
 #####################################################################
 
 sub _check_alias {
-    my ($invocant, $aliases) = @_;
+    my ($invocant, $aliases, undef, $params) = @_;
     $aliases = ref $aliases ? $aliases : [split(/[\s,]+/, $aliases)];
 
     # Remove empty aliases
     @$aliases = grep { $_ } @$aliases;
+
+    my $product = blessed($invocant) ? $invocant->product_obj
+                                     : $params->{product};
+
+    # You need editbugs to edit these fields
+    unless (Bugzilla->user->in_group('editbugs', $product->id)) {
+        if (scalar @$aliases) {
+            ThrowUserError('illegal_change', { field  => 'alias',
+                                               action => 'set',
+                                               privs  => PRIVILEGES_REQUIRED_EMPOWERED });
+        }
+    }
 
     foreach my $alias (@$aliases) {
         $alias = trim($alias);
@@ -1505,20 +1560,6 @@ sub _check_bug_status {
         ThrowUserError('comment_required',
           { old => $old_status ? $old_status->name : undef,
             new => $new_status->name, field => 'bug_status' });
-    }
-    
-    if (ref $invocant 
-        && ($new_status->name eq 'IN_PROGRESS'
-            # Backwards-compat for the old default workflow.
-            or $new_status->name eq 'ASSIGNED')
-        && Bugzilla->params->{"usetargetmilestone"}
-        && Bugzilla->params->{"musthavemilestoneonaccept"}
-        # musthavemilestoneonaccept applies only if at least two
-        # target milestones are defined for the product.
-        && scalar(@{ $product->milestones }) > 1
-        && $invocant->target_milestone eq $product->default_milestone)
-    {
-        ThrowUserError("milestone_required", { bug => $invocant });
     }
 
     if (!blessed $invocant) {
@@ -1700,7 +1741,7 @@ sub _check_dependencies {
             }
         }
         # Replace all aliases by their corresponding bug ID.
-        @bug_ids = map { $_ =~ /^(\d+)$/ ? $1 : $invocant->check($_, $type)->id } @bug_ids;
+        @bug_ids = map { $_ =~ /^(\d+)$/a ? $1 : $invocant->check($_, $type)->id } @bug_ids;
         $deps_in{$type} = \@bug_ids;
     }
 
@@ -1842,6 +1883,20 @@ sub _check_keywords {
         my $obj = Bugzilla::Keyword->check($keyword);
         $keywords{$obj->id} = $obj;
     }
+
+    my %old_kw_id;
+    if (blessed $invocant) {
+        my @old_keywords = @{$invocant->keyword_objects};
+        %old_kw_id  = map { $_->id => 1 } @old_keywords;
+    }
+
+    foreach my $keyword (values %keywords) {
+        next if $keyword->is_active || exists $old_kw_id{$keyword->id};
+
+        ThrowUserError('value_inactive',
+                        { value  => $keyword->name, class => ref $keyword });
+    }
+
     return [values %keywords];
 }
 
@@ -2254,7 +2309,7 @@ sub _check_integer_field {
         ThrowUserError("number_not_integer",
                        {field => $field, num => $orig_value});
     }
-    elsif ($value > MAX_INT_32) {
+    elsif (abs($value) > MAX_INT_32) {
         ThrowUserError("number_too_large",
                        {field => $field, num => $orig_value, max_num => MAX_INT_32});
     }
@@ -2436,10 +2491,18 @@ sub set_all {
               is_markdown => $params->{'comment'}->{'is_markdown'} });
     }
 
+    if (defined $params->{comment_tags} && Bugzilla->user->can_tag_comments()) {
+        $self->{added_comment_tags} = ref $params->{comment_tags}
+                                      ? $params->{comment_tags}
+                                      : [ $params->{comment_tags} ];
+    }
+
     if (exists $params->{alias} && $params->{alias}{set}) {
+        my ($removed_aliases, $added_aliases) = diff_arrays(
+            $self->alias, $params->{alias}{set});
         $params->{alias} = {
-            add    => $params->{alias}{set},
-            remove => $self->alias,
+            add    => $added_aliases,
+            remove => $removed_aliases,
         };
     }
 
@@ -2505,29 +2568,34 @@ sub reset_assigned_to {
 }
 sub set_bug_ignored       { $_[0]->set('bug_ignored',       $_[1]); }
 sub set_cclist_accessible { $_[0]->set('cclist_accessible', $_[1]); }
+
 sub set_comment_is_private {
-    my ($self, $comment_id, $isprivate) = @_;
+    my ($self, $comments, $isprivate) = @_;
+    $self->{comment_isprivate} ||= [];
+    my $is_insider = Bugzilla->user->is_insider;
 
-    # We also allow people to pass in a hash of comment ids to update.
-    if (ref $comment_id) {
-        while (my ($id, $is) = each %$comment_id) {
-            $self->set_comment_is_private($id, $is);
+    $comments = { $comments => $isprivate } unless ref $comments;
+
+    foreach my $comment (@{$self->comments}) {
+        # Skip unmodified comment privacy.
+        next unless exists $comments->{$comment->id};
+
+        my $isprivate = delete $comments->{$comment->id} ? 1 : 0;
+        if ($isprivate != $comment->is_private) {
+            ThrowUserError('user_not_insider') unless $is_insider;
+            $comment->set_is_private($isprivate);
+            push @{$self->{comment_isprivate}}, $comment;
         }
-        return;
     }
 
-    my ($comment) = grep($comment_id == $_->id, @{ $self->comments });
-    ThrowUserError('comment_invalid_isprivate', { id => $comment_id }) 
-        if !$comment;
+    # If there are still entries in $comments, then they are illegal.
+    ThrowUserError('comment_invalid_isprivate', { id => join(', ', keys %$comments) })
+      if scalar keys %$comments;
 
-    $isprivate = $isprivate ? 1 : 0;
-    if ($isprivate != $comment->is_private) {
-        ThrowUserError('user_not_insider') if !Bugzilla->user->is_insider;
-        $self->{comment_isprivate} ||= [];
-        $comment->set_is_private($isprivate);
-        push @{$self->{comment_isprivate}}, $comment;
-    }
+    # If no comment privacy has been modified, remove this key.
+    delete $self->{comment_isprivate} unless scalar @{$self->{comment_isprivate}};
 }
+
 sub set_component  {
     my ($self, $name) = @_;
     my $old_comp  = $self->component_obj;
@@ -2929,6 +2997,16 @@ sub add_alias {
 
 sub remove_alias {
     my ($self, $alias) = @_;
+
+    my $privs;
+    my $can = $self->check_can_change_field('alias', '', $alias, \$privs);
+    if (!$can) {
+        ThrowUserError('illegal_change', { field    => 'alias',
+                                           action   => 'unset',
+                                           oldvalue => $alias,
+                                           privs    => $privs });
+    }
+
     my $bug_aliases = $self->alias;
     @$bug_aliases = grep { $_ ne $alias } @$bug_aliases;
 }
@@ -3376,13 +3454,8 @@ sub alias {
 
     my $dbh = Bugzilla->dbh;
     $self->{'alias'} = $dbh->selectcol_arrayref(
-        q{SELECT alias
-            FROM bugs_aliases
-           WHERE bug_id = ?
-        ORDER BY alias},
-      undef, $self->bug_id);
-
-    $self->{'alias'} = [] if !scalar(@{$self->{'alias'}});
+        q{SELECT alias FROM bugs_aliases WHERE bug_id = ? ORDER BY alias},
+        undef, $self->bug_id);
 
     return $self->{'alias'};
 }
@@ -3410,6 +3483,7 @@ sub attachments {
 
     $self->{'attachments'} =
         Bugzilla::Attachment->get_attachments_by_bug($self, {preload => 1});
+    $_->object_cache_set() foreach @{ $self->{'attachments'} };
     return $self->{'attachments'};
 }
 
@@ -3586,7 +3660,10 @@ sub flags {
 
 sub isopened {
     my $self = shift;
-    return is_open_state($self->{bug_status}) ? 1 : 0;
+    unless (exists $self->{isopened}) {
+        $self->{isopened} = is_open_state($self->{bug_status}) ? 1 : 0;
+    }
+    return $self->{isopened};
 }
 
 sub keywords {
@@ -3623,8 +3700,6 @@ sub comments {
             # equivalent for characters above U+FFFF as MySQL older than 5.5.3
             # cannot store them, see Bugzilla::Comment::_check_thetext().
             if ($is_mysql) {
-                # Perl 5.13.8 and older complain about non-characters.
-                no warnings 'utf8';
                 $comment->{thetext} =~ s/\x{FDD0}\[U\+((?:[1-9A-F]|10)[0-9A-F]{4})\]\x{FDD1}/chr(hex $1)/eg
             }
         }
@@ -4038,7 +4113,11 @@ sub EmitDependList {
 # Creates a lot of bug objects in the same order as the input array.
 sub _bugs_in_order {
     my ($self, $bug_ids) = @_;
+    return [] unless @$bug_ids;
+
     my %bug_map;
+    my $dbh = Bugzilla->dbh;
+
     # there's no need to load bugs from the database if they are already in the
     # object-cache
     my @missing_ids;
@@ -4050,10 +4129,25 @@ sub _bugs_in_order {
             push @missing_ids, $bug_id;
         }
     }
-    my $bugs = $self->new_from_list(\@missing_ids);
-    foreach my $bug (@$bugs) {
-        $bug_map{$bug->id} = $bug;
+    if (@missing_ids) {
+        my $bugs = Bugzilla::Bug->new_from_list(\@missing_ids);
+        $bug_map{$_->id} = $_ foreach @$bugs;
     }
+
+    # Dependencies are often displayed using their aliases instead of their
+    # bug ID. Load them all at once.
+    my $rows = $dbh->selectall_arrayref(
+        'SELECT bug_id, alias FROM bugs_aliases WHERE ' .
+        $dbh->sql_in('bug_id', $bug_ids) . ' ORDER BY alias');
+
+    foreach my $row (@$rows) {
+        my ($bug_id, $alias) = @$row;
+        $bug_map{$bug_id}->{alias} ||= [];
+        push @{ $bug_map{$bug_id}->{alias} }, $alias;
+    }
+    # Make sure all bugs have their alias attribute set.
+    $bug_map{$_}->{alias} ||= [] foreach @$bug_ids;
+
     return [ map { $bug_map{$_} } @$bug_ids ];
 }
 
@@ -4386,6 +4480,12 @@ sub check_can_change_field {
         return 1;
     }
 
+    # You need editbugs in order to change the alias
+    if ($field eq 'alias') {
+       $$PrivilegesRequired = PRIVILEGES_REQUIRED_EMPOWERED;
+       return 0;
+    }
+
     # *Only* users with (product-specific) "canconfirm" privs can confirm bugs.
     if ($self->_changes_everconfirmed($field, $oldvalue, $newvalue)) {
         $$PrivilegesRequired = PRIVILEGES_REQUIRED_EMPOWERED;
@@ -4502,6 +4602,10 @@ sub ValidateDependencies {
     my $dbh = Bugzilla->dbh;
     my %deps;
     my %deptree;
+    my %sth;
+    $sth{dependson} = $dbh->prepare('SELECT dependson FROM dependencies WHERE blocked   = ?');
+    $sth{blocked}   = $dbh->prepare('SELECT blocked   FROM dependencies WHERE dependson = ?');
+
     foreach my $pair (["blocked", "dependson"], ["dependson", "blocked"]) {
         my ($me, $target) = @{$pair};
         $deptree{$target} = [];
@@ -4526,10 +4630,7 @@ sub ValidateDependencies {
         my @stack = @{$deps{$target}};
         while (@stack) {
             my $i = shift @stack;
-            my $dep_list =
-                $dbh->selectcol_arrayref("SELECT $target
-                                          FROM dependencies
-                                          WHERE $me = ?", undef, $i);
+            my $dep_list = $dbh->selectcol_arrayref($sth{$target}, undef, $i);
             foreach my $t (@$dep_list) {
                 # ignore any _current_ dependencies involving this bug,
                 # as they will be overwritten with data from the form.

@@ -7,7 +7,7 @@
 
 package Bugzilla::WebService::Server::JSONRPC;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -222,8 +222,11 @@ sub type {
         utf8::encode($value) if utf8::is_utf8($value);
         $retval = encode_base64($value, '');
     }
-    elsif ($type eq 'email' && Bugzilla->params->{'webservice_email_filter'}) {
-        $retval = email_filter($value);
+    elsif ($type eq 'login') {
+        $retval = Bugzilla->params->{'use_email_as_login'} ? email_filter($retval) : "$retval";
+    }
+    elsif ($type eq 'email') {
+        $retval = Bugzilla->user->in_group('editusers') ? "$retval" : '';
     }
 
     return $retval;
@@ -272,6 +275,9 @@ sub _handle {
     $self->{_bz_request_id} = $obj->{id};
 
     my $result = $self->SUPER::_handle(@_);
+
+    # Reset in_eval to so we get normal exceptions from here
+    Bugzilla->request_cache->{in_eval} = 0;
 
     # Set the ETag if not already set in the webservice methods.
     my $etag = $self->bz_etag;
@@ -424,6 +430,9 @@ sub _argument_type_check {
     if ($params_is_array) {
         $params = [$params];
     }
+
+    # Let Bugzilla::Error know we are inside an eval() after this point
+    Bugzilla->request_cache->{in_eval} = 1;
 
     return $params;
 }

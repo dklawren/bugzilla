@@ -7,7 +7,7 @@
 
 package Bugzilla::BugUrl;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -108,8 +108,9 @@ sub _do_list_select {
     my $objects = $class->SUPER::_do_list_select(@_);
 
     foreach my $object (@$objects) {
-        eval "use " . $object->class; die $@ if $@;
-        bless $object, $object->class;
+        eval "use " . $object->class;
+        # If the class cannot be loaded, then we build a generic object.
+        bless $object, ($@ ? 'Bugzilla::BugUrl' : $object->class);
     }
 
     return $objects

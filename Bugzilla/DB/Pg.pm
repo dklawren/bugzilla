@@ -21,7 +21,7 @@ For interface details see L<Bugzilla::DB> and L<DBI>.
 
 package Bugzilla::DB::Pg;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -103,11 +103,6 @@ sub sql_group_concat {
         $order_by = " ORDER BY $1";
     }
 
-    if (vers_cmp($self->bz_server_version, 9) < 0) {
-        # PostgreSQL 8.x doesn't support STRING_AGG
-        return "ARRAY_TO_STRING(ARRAY_AGG($text$order_by), $separator)";
-    }
-
     return "STRING_AGG(${text}::text, $separator${order_by}::text)"
 }
 
@@ -121,6 +116,36 @@ sub sql_position {
     my ($self, $fragment, $text) = @_;
 
     return "POSITION(${fragment}::text IN ${text}::text)";
+}
+
+sub sql_like {
+    my ($self, $fragment, $column, $not) = @_;
+    $not //= '';
+
+    return "${column}::text $not LIKE " . $self->sql_like_escape($fragment) . " ESCAPE '|'";
+}
+
+sub sql_ilike {
+    my ($self, $fragment, $column, $not) = @_;
+    $not //= '';
+
+    return "${column}::text $not ILIKE " . $self->sql_like_escape($fragment) . " ESCAPE '|'";
+}
+
+sub sql_not_ilike {
+    return shift->sql_ilike(@_, 'NOT');
+}
+
+# Escapes any % or _ characters which are special in a LIKE match.
+# Also performs a $dbh->quote to escape any quote characters.
+sub sql_like_escape {
+    my ($self, $fragment) = @_;
+
+    $fragment =~ s/\|/\|\|/g;  # escape the escape character if it appears
+    $fragment =~ s/%/\|%/g;    # percent and underscore are the special match
+    $fragment =~ s/_/\|_/g;    # characters in SQL.
+
+    return $self->quote("%$fragment%");
 }
 
 sub sql_regexp {
@@ -212,20 +237,6 @@ sub bz_explain {
 #####################################################################
 # Custom Database Setup
 #####################################################################
-
-sub bz_check_server_version {
-    my $self = shift;
-    my ($db) = @_;
-    my $server_version = $self->SUPER::bz_check_server_version(@_);
-    my ($major_version, $minor_version) = $server_version =~ /^0*(\d+)\.0*(\d+)/;
-    # Pg 9.0 requires DBD::Pg 2.17.2 in order to properly read bytea values.
-    # Pg 9.2 requires DBD::Pg 2.19.3 as spclocation no longer exists.
-    if ($major_version >= 9) {
-        local $db->{dbd}->{version} = ($minor_version >= 2) ? '2.19.3' : '2.17.2';
-        local $db->{name} = $db->{name} . " ${major_version}.$minor_version";
-        Bugzilla::DB::_bz_check_dbd(@_);
-    }
-}
 
 sub bz_setup_database {
     my $self = shift;
@@ -413,6 +424,39 @@ sub bz_table_list_real {
 
 1;
 
+=head2 Functions
+
+=over
+
+=item C<sql_like_escape>
+
+=over
+
+=item B<Description>
+
+The postgres versions of the sql_like methods use the ANSI SQL LIKE
+statements to perform substring searching.  To prevent issues with
+users attempting to search for strings containing special characters
+associated with LIKE, we escape them out so they don't affect the search
+terms.
+
+=item B<Params>
+
+=over
+
+=item C<$fragment> - The string fragment in need of escaping and quoting
+
+=back
+
+=item B<Returns>
+
+The fragment with any pre existing %,_,| characters escaped out, wrapped in
+percent characters and quoted.
+
+=back
+
+=back
+
 =head1 B<Methods in need of POD>
 
 =over
@@ -427,6 +471,12 @@ sub bz_table_list_real {
 
 =item sql_position
 
+=item sql_like
+
+=item sql_ilike
+
+=item sql_not_ilike
+
 =item sql_limit
 
 =item sql_not_regexp
@@ -436,8 +486,6 @@ sub bz_table_list_real {
 =item sql_date_math
 
 =item sql_to_days
-
-=item bz_check_server_version
 
 =item sql_from_days
 

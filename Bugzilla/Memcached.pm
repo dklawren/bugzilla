@@ -7,7 +7,7 @@
 
 package Bugzilla::Memcached;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -29,10 +29,10 @@ sub _new {
     if (Bugzilla->feature('memcached')
         && Bugzilla->params->{memcached_servers})
     {
-        require Cache::Memcached;
+        require Cache::Memcached::Fast;
         $self->{namespace} = Bugzilla->params->{memcached_namespace} || '';
         $self->{memcached} =
-            Cache::Memcached->new({
+            Cache::Memcached::Fast->new({
                 servers   => [ split(/[, ]+/, Bugzilla->params->{memcached_servers}) ],
                 namespace => $self->{namespace},
             });

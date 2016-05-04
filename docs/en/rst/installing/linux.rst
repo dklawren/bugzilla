@@ -35,35 +35,33 @@ The following command will install Red Hat's packaged version of Bugzilla:
 
 :command:`yum install bugzilla httpd mysql-server`
 
-However, if you go this route, you need to read :bug:`415605`, which details
-some problems with the Email::Send package. Then, you can skip to
-:ref:`configuring your database <linux-config-database>`. It may be useful to
-know that Fedora stores the Bugzilla files in :file:`/usr/share/bugzilla`, so
-that's where you'll run :file:`checksetup.pl`.
+Then, you can skip to :ref:`configuring your database <linux-config-database>`.
+It may be useful to know that Fedora stores the Bugzilla files in
+:file:`/usr/share/bugzilla`, so that's where you'll run :file:`checksetup.pl`.
 
 If you want to install a version of Bugzilla from the Bugzilla project, you
 will instead need:
 
 :command:`yum install httpd mysql-server mod_perl mod_perl-devel httpd-devel
+gd-devel mysql-devel rst2pdf
 graphviz patchutils gcc 'perl(Apache2::SizeLimit)' 'perl(Authen::Radius)'
 'perl(Authen::SASL)' 'perl(Cache::Memcached)' 'perl(CGI)' 'perl(Chart::Lines)'
 'perl(Daemon::Generic)' 'perl(Date::Format)' 'perl(DateTime)'
 'perl(DateTime::TimeZone)' 'perl(DBI)' 'perl(Digest::SHA)' 'perl(Email::MIME)'
-'perl(Email::MIME::Attachment::Stripper)' 'perl(Email::Reply)'
-'perl(Email::Sender)' 'perl(Encode)' 'perl(Encode::Detect)'
+'perl(Email::Reply)' 'perl(Email::Sender)' 'perl(Encode)' 'perl(Encode::Detect)'
 'perl(File::MimeInfo::Magic)' 'perl(File::Slurp)' 'perl(GD)' 'perl(GD::Graph)'
 'perl(GD::Text)' 'perl(HTML::FormatText::WithLinks)' 'perl(HTML::Parser)'
 'perl(HTML::Scrubber)' 'perl(IO::Scalar)' 'perl(JSON::RPC)' 'perl(JSON::XS)'
 'perl(List::MoreUtils)' 'perl(LWP::UserAgent)' 'perl(Math::Random::ISAAC)'
 'perl(MIME::Parser)' 'perl(mod_perl2)' 'perl(Net::LDAP)' 'perl(Net::SMTP::SSL)'
-'perl(PatchReader)' 'perl(SOAP::Lite)' 'perl(Template)'
+'perl(PatchReader)' 'perl(SOAP::Lite)' 'perl(Template)' 'perl(File::Which)'
 'perl(Template::Plugin::GD::Image)' 'perl(Test::Taint)' 'perl(TheSchwartz)'
 'perl(URI)' 'perl(XMLRPC::Lite)' 'perl(XML::Twig)'`
 
 If you are running RHEL6, you will have to enable the "RHEL Server Optional"
 channel in RHN to get some of those packages. 
 
-If you plan to use SQlite as your database, you will need to also install
+If you plan to use a database other than MySQL, you will need to also install
 the appropriate packages for that.
 
 Ubuntu and Debian
@@ -81,11 +79,12 @@ libchart-perl libxml-perl libxml-twig-perl perlmagick libgd-graph-perl
 libtemplate-plugin-gd-perl libsoap-lite-perl libhtml-scrubber-perl
 libjson-rpc-perl libdaemon-generic-perl libtheschwartz-perl
 libtest-taint-perl libauthen-radius-perl libfile-slurp-perl
-libencode-detect-perl libmodule-build-perl libnet-ldap-perl
+libencode-detect-perl libmodule-build-perl libnet-ldap-perl libfile-which-perl
 libauthen-sasl-perl libtemplate-perl-doc libfile-mimeinfo-perl
-libhtml-formattext-withlinks-perl libgd-dev lynx-cur graphviz python-sphinx`
+libhtml-formattext-withlinks-perl libgd-dev libmysqlclient-dev lynx-cur
+graphviz python-sphinx rst2pdf`
 
-If you plan to use SQlite as your database, you will need to also install
+If you plan to use a database other than MySQL, you will need to also install
 the appropriate packages for that.
 
 Gentoo
@@ -118,7 +117,7 @@ Bugzilla
 
 The best way to get Bugzilla is to check it out from git:
 
-:command:`git clone --branch bugzilla-X.X-stable https://git.mozilla.org/bugzilla/bugzilla`
+:command:`git clone --branch release-X.X-stable https://git.mozilla.org/bugzilla/bugzilla`
 
 Run the above command in your home directory, replacing "X.X" with the 2-digit
 version number of the stable release of Bugzilla that you want - e.g. "4.4".
@@ -149,34 +148,22 @@ times, Bugzilla may require a version of a Perl module newer than the one
 your distribution packages, in which case you will need to install a
 Bugzilla-only copy of the newer version.
 
-At this point you probably need to become ``root``, e.g. by using
-:command:`su`. You should remain as root until the end of the install. This
-can be avoided in some circumstances if you are a member of your webserver's
-group, but being root is easier and will always work.
+To make sure you have all the core requirements to run Bugzilla, you should run the following command:
 
-To check whether you have all the required modules, run:
+:command:`perl Makefile.PL`
 
-:command:`./checksetup.pl --check-modules`
+Should this command warn about missing prerequisites -- or prerequisites that
+are too old, you may use :file:`cpanm` to install these.
 
-You can run this command as many times as necessary.
+:command:`cpanm --installdeps -l local .`
 
-If you have not already installed the necessary modules, and want to do it
-system-wide, invoke your package manager appropriately at this point.
-Alternatively, you can install all missing modules locally (i.e. just for
-Bugzilla) like this:
+If you want a more full-featured Bugzilla, use the following command:
 
-:command:`./install-module.pl --all`
+:command:`cpanm --installdeps -l local --with-all-features --without-feature mod_perl --without-feature oracle --without-feature mysql --without-feature pg .`
 
-Or, you can pass an individual module name:
-
-:command:`./install-module.pl <modulename>`
-
-.. note:: If you are using a package-based distribution, and attempting to
-   install the Perl modules from CPAN (e.g. by using :file:`install-module.pl`),
-   you may need to install the "development"
-   packages for MySQL and GD before attempting to install the related Perl
-   modules. The names of these packages will vary depending on the specific
-   distribution you are using, but are often called :file:`<packagename>-devel`.
+If you don't have :file:`cpanm` installed, you can either find it in your
+:file:`cpanminus` or :file:`perl-App-cpanminus` package, or
+`download it <http://cpanmin.us>`_  from cpanmin.us.
 
 .. _linux-config-webserver:
 
@@ -187,6 +174,7 @@ Any web server that is capable of running CGI scripts can be made to work.
 We have specific configuration instructions for the following:
 
 * :ref:`apache`
+* :ref:`nginx`
 
 .. _linux-config-database:
 

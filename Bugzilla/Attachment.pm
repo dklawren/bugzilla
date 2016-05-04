@@ -7,7 +7,7 @@
 
 package Bugzilla::Attachment;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -541,9 +541,8 @@ sub _check_content_type {
 
     # If we have autodetected application/octet-stream from the Content-Type
     # header, let's have a better go using a sniffer if available.
-    if (defined Bugzilla->input_params->{contenttypemethod}
-        && Bugzilla->input_params->{contenttypemethod} eq 'autodetect'
-        && $content_type eq 'application/octet-stream'
+    if ((Bugzilla->input_params->{contenttypemethod} // '') eq 'autodetect'
+        && ($content_type eq 'application/octet-stream' || $content_type =~ m{text/x-})
         && Bugzilla->feature('typesniffer'))
     {
         import File::MimeInfo::Magic qw(mimetype);
@@ -574,8 +573,7 @@ sub _check_content_type {
 
     # Make sure patches are viewable in the browser
     if (!ref($invocant)
-        && defined Bugzilla->input_params->{contenttypemethod}
-        && Bugzilla->input_params->{contenttypemethod} eq 'autodetect'
+        && (Bugzilla->input_params->{contenttypemethod} // '') eq 'autodetect'
         && $content_type =~ m{text/x-(?:diff|patch)})
     {
         $params->{ispatch} = 1;
@@ -905,6 +903,8 @@ sub create {
 sub run_create_validators {
     my ($class, $params) = @_;
 
+    $params->{submitter_id} = Bugzilla->user->id || ThrowUserError('invalid_user');
+
     # Let's validate the attachment content first as it may
     # alter some other attachment attributes.
     $params->{data} = $class->_check_data($params);
@@ -912,7 +912,6 @@ sub run_create_validators {
 
     $params->{creation_ts} ||= Bugzilla->dbh->selectrow_array('SELECT LOCALTIMESTAMP(0)');
     $params->{modification_time} = $params->{creation_ts};
-    $params->{submitter_id} = Bugzilla->user->id || ThrowUserError('invalid_user');
 
     return $params;
 }
@@ -1021,7 +1020,7 @@ sub get_content_type {
         # The user asked us to auto-detect the content type, so use the type
         # specified in the HTTP request headers.
         $content_type =
-            $cgi->uploadInfo($cgi->param('data'))->{'Content-Type'};
+            $cgi->uploadInfo(scalar $cgi->param('data'))->{'Content-Type'};
         $content_type || ThrowUserError("missing_content_type");
 
         # Internet Explorer sends image/x-png for PNG images,

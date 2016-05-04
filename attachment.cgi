@@ -6,11 +6,11 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::BugMail;
@@ -25,7 +25,8 @@ use Bugzilla::Attachment;
 use Bugzilla::Attachment::PatchReader;
 use Bugzilla::Token;
 
-use Encode qw(encode find_encoding);
+use Encode qw(find_encoding);
+use URI::Escape qw(uri_escape_utf8);
 use Cwd qw(realpath);
 
 # For most scripts we don't make $cgi and $template global variables. But
@@ -329,8 +330,8 @@ sub view {
 
     # Bug 111522: allow overriding content-type manually in the posted form
     # params.
-    if (defined $cgi->param('content_type')) {
-        $contenttype = $attachment->_check_content_type($cgi->param('content_type'));
+    if (my $content_type = $cgi->param('content_type')) {
+        $contenttype = $attachment->_check_content_type($content_type);
     }
 
     # Return the appropriate HTTP response headers.
@@ -340,13 +341,11 @@ sub view {
     # escape quotes and backslashes in the filename, per RFCs 2045/822
     $filename =~ s/\\/\\\\/g; # escape backslashes
     $filename =~ s/"/\\"/g; # escape quotes
+    # Follow RFC 6266 section 4.1 (which itself points to RFC 5987 section 3.2)
+    $filename = uri_escape_utf8($filename);
 
-    # Avoid line wrapping done by Encode, which we don't need for HTTP
-    # headers. See discussion in bug 328628 for details.
-    local $Encode::Encoding{'MIME-Q'}->{'bpl'} = 10000;
-    $filename = encode('MIME-Q', $filename);
-
-    my $disposition = Bugzilla->params->{'allow_attachment_display'} ? 'inline' : 'attachment';
+    my $disposition = (Bugzilla->params->{'allow_attachment_display'}
+                       && $attachment->is_viewable) ? 'inline' : 'attachment';
 
     # Don't send a charset header with attachments--they might not be UTF-8.
     # However, we do allow people to explicitly specify a charset if they
@@ -371,8 +370,11 @@ sub view {
         my $attachment_path = realpath($attachment->_get_local_filename());
         $sendfile_header->{$sendfile_param} = $attachment_path;
     }
-    print $cgi->header(-type=>"$contenttype; name=\"$filename\"",
-                       -content_disposition=> "$disposition; filename=\"$filename\"",
+    # IE8 and older do not support RFC 6266. So for these old browsers
+    # we still pass the old 'filename' attribute. Modern browsers will
+    # automatically pick the new 'filename*' attribute.
+    print $cgi->header(-type=> $contenttype,
+                       -content_disposition=> "$disposition; filename=\"$filename\"; filename*=UTF-8''$filename",
                        -content_length => $attachment->datasize,
                        %$sendfile_header);
     if ($attachment->is_on_filesystem && $sendfile_param ne 'off') {
@@ -501,13 +503,13 @@ sub insert {
     my ($timestamp) = $dbh->selectrow_array("SELECT NOW()");
 
     # Detect if the user already used the same form to submit an attachment
-    my $token = trim($cgi->param('token'));
+    my $token = trim(scalar $cgi->param('token'));
     check_token_data($token, 'create_attachment', 'index.cgi');
 
     # Check attachments the user tries to mark as obsolete.
     my @obsolete_attachments;
     if ($cgi->param('obsolete')) {
-        my @obsolete = $cgi->param('obsolete');
+        my @obsolete = $cgi->multi_param('obsolete');
         @obsolete_attachments = Bugzilla::Attachment->validate_obsolete($bug, \@obsolete);
     }
 
@@ -541,15 +543,19 @@ sub insert {
     }
 
     my ($flags, $new_flags) = Bugzilla::Flag->extract_flags_from_cgi(
-                                  $bug, $attachment, $vars, SKIP_REQUESTEE_ON_ERROR);
+                                  $vars, SKIP_REQUESTEE_ON_ERROR,
+                                  { bug => $bug, attachment => $attachment });
     $attachment->set_flags($flags, $new_flags);
 
     # Insert a comment about the new attachment into the database.
     my $comment = $cgi->param('comment');
     $comment = '' unless defined $comment;
+    my $is_markdown = ($user->use_markdown
+                       && $cgi->param('use_markdown')) ? 1 : 0;
     $bug->add_comment($comment, { isprivate => $attachment->isprivate,
                                   type => CMT_ATTACHMENT_CREATED,
-                                  extra_data => $attachment->id });
+                                  extra_data => $attachment->id,
+                                  is_markdown => $is_markdown});
 
     # Assign the bug to the user, if they are allowed to take it
     my $owner = "";
@@ -696,7 +702,7 @@ sub update {
     $bug->add_cc($user) if $cgi->param('addselfcc');
 
     my ($flags, $new_flags) =
-      Bugzilla::Flag->extract_flags_from_cgi($bug, $attachment, $vars);
+      Bugzilla::Flag->extract_flags_from_cgi($vars, undef, { bug => $bug, attachment => $attachment });
 
     if ($can_edit) {
         $attachment->set_flags($flags, $new_flags);
@@ -778,7 +784,7 @@ sub delete_attachment {
     $attachment->datasize || ThrowUserError('attachment_removed');
 
     # We don't want to let a malicious URL accidentally delete an attachment.
-    my $token = trim($cgi->param('token'));
+    my $token = trim(scalar $cgi->param('token'));
     if ($token) {
         my ($creator_id, $date, $event) = Bugzilla::Token::GetTokenData($token);
         unless ($creator_id

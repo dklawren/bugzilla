@@ -7,7 +7,7 @@
 
 package Bugzilla::Migrate;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -199,12 +199,24 @@ sub load {
     my @migration_modules = glob("$libdir/Bugzilla/Migrate/*");
     my ($module) = grep { basename($_) =~ /^\Q$from\E\.pm$/i }
                           @migration_modules;
-    if (!$module) {
-        ThrowUserError('migrate_from_invalid', { from => $from });
+    if ($module) {
+      require $module;
+      my $canonical_name = _canonical_name($module);
+      return "Bugzilla::Migrate::$canonical_name"->new;     
     }
-    require $module;
-    my $canonical_name = _canonical_name($module);
-    return "Bugzilla::Migrate::$canonical_name"->new;
+    else {
+      my $migrate_module = {};
+      Bugzilla::Hook::process('migrate_modules', $migrate_module);
+      @migration_modules = glob($migrate_module->{path}."/*");
+      ($module) = grep { basename($_) =~ /^\Q$from\E\.pm$/i }
+                          @migration_modules;
+      if (!$module) {
+        ThrowUserError('migrate_from_invalid', { from => $from });
+      }
+      require $module;
+      my $canonical_name = _canonical_name($module);
+      return "$migrate_module->{prefix}::$canonical_name"->new;
+    }
 }
 
 #############

@@ -15,7 +15,7 @@ package Bugzilla::Install::Filesystem;
 # * Files do not have the correct permissions.
 # * The database does not exist.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -52,12 +52,7 @@ use constant HT_DEFAULT_DENY => <<EOT;
     Deny from all
   </IfVersion>
   <IfVersion >= 2.4>
-    <IfModule mod_perl.c>
-      Deny from all
-    </IfModule>
-    <IfModule !mod_perl.c>
-      Require all denied
-    </IfModule>
+    Require all denied
   </IfVersion>
 </IfModule>
 <IfModule !mod_version.c>
@@ -166,14 +161,17 @@ sub FILESYSTEM {
         'email_in.pl'     => { perms => WS_EXECUTE },
         'sanitycheck.pl'  => { perms => WS_EXECUTE },
         'checksetup.pl'   => { perms => OWNER_EXECUTE },
-        'runtests.pl'     => { perms => OWNER_EXECUTE },
         'jobqueue.pl'     => { perms => OWNER_EXECUTE },
         'migrate.pl'      => { perms => OWNER_EXECUTE },
-        'install-module.pl' => { perms => OWNER_EXECUTE },
+        'Makefile.PL'     => { perms => OWNER_WRITE },
+        'gen-cpanfile.pl' => { perms => OWNER_EXECUTE },
         'clean-bug-user-last-visit.pl' => { perms => WS_EXECUTE },
 
+        'app.psgi'      => { perms => CGI_READ },
         'Bugzilla.pm'   => { perms => CGI_READ },
         "$localconfig*" => { perms => CGI_READ },
+        'META.*'        => { perms => CGI_READ },
+        'MYMETA.*'      => { perms => CGI_READ },
         'bugzilla.dtd'  => { perms => WS_SERVE },
         'mod_perl.pl'   => { perms => WS_SERVE },
         'robots.txt'    => { perms => WS_SERVE },
@@ -192,6 +190,7 @@ sub FILESYSTEM {
         "$datadir/old-params.txt"  => { perms => OWNER_WRITE },
         "$extensionsdir/create.pl" => { perms => OWNER_EXECUTE },
         "$extensionsdir/*/*.pl"    => { perms => WS_EXECUTE },
+        'xt/config/generate_test_data.pl' => { perms => OWNER_EXECUTE },
     );
 
     # Directories that we want to set the perms on, but not
@@ -360,12 +359,7 @@ EOT
       Allow from all
     </IfVersion>
     <IfVersion >= 2.4>
-      <IfModule mod_perl.c>
-        Allow from all
-      </IfModule>
-      <IfModule !mod_perl.c>
-        Require all granted
-      </IfModule>
+      Require all granted
     </IfVersion>
   </IfModule>
   <IfModule !mod_version.c>
@@ -379,12 +373,7 @@ EOT
     Deny from all
   </IfVersion>
   <IfVersion >= 2.4>
-    <IfModule mod_perl.c>
-      Deny from all
-    </IfModule>
-    <IfModule !mod_perl.c>
-      Require all denied
-    </IfModule>
+    Require all denied
   </IfVersion>
 </IfModule>
 <IfModule !mod_version.c>
@@ -404,14 +393,8 @@ EOT
 #      Deny from all
 #    </IfVersion>
 #    <IfVersion >= 2.4>
-#      <IfModule mod_perl.c>
-#        Allow from 127.0.0.1/24
-#        Deny from all
-#      </IfModule>
-#      <IfModule !mod_perl.c>
-#        Require ip 127.0.0.1/24
-#        Require all denied
-#      </IfModule>
+#      Require ip 127.0.0.1/24
+#      Require all denied
 #    </IfVersion>
 #  </IfModule>
 #  <IfModule !mod_version.c>
@@ -427,12 +410,7 @@ EOT
       Allow from all
     </IfVersion>
     <IfVersion >= 2.4>
-      <IfModule mod_perl.c>
-        Allow from all
-      </IfModule>
-      <IfModule !mod_perl.c>
-        Require all granted
-      </IfModule>
+      Require all granted
     </IfVersion>
   </IfModule>
   <IfModule !mod_version.c>
@@ -446,12 +424,7 @@ EOT
     Deny from all
   </IfVersion>
   <IfVersion >= 2.4>
-    <IfModule mod_perl.c>
-      Deny from all
-    </IfModule>
-    <IfModule !mod_perl.c>
-      Require all denied
-    </IfModule>
+    Require all denied
   </IfVersion>
 </IfModule>
 <IfModule !mod_version.c>
@@ -468,12 +441,7 @@ EOT
       Allow from all
     </IfVersion>
     <IfVersion >= 2.4>
-      <IfModule mod_perl.c>
-        Allow from all
-      </IfModule>
-      <IfModule !mod_perl.c>
-        Require all granted
-      </IfModule>
+      Require all granted
     </IfVersion>
   </IfModule>
   <IfModule !mod_version.c>
@@ -487,12 +455,7 @@ EOT
     Deny from all
   </IfVersion>
   <IfVersion >= 2.4>
-    <IfModule mod_perl.c>
-      Deny from all
-    </IfModule>
-    <IfModule !mod_perl.c>
-      Require all denied
-    </IfModule>
+    Require all denied
   </IfVersion>
 </IfModule>
 <IfModule !mod_version.c>

@@ -7,7 +7,7 @@
 
 package Bugzilla::Config;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -16,6 +16,7 @@ use autodie qw(:default);
 
 use Bugzilla::Constants;
 use Bugzilla::Hook;
+use Bugzilla::Install::Util qw(i_am_persistent);
 use Bugzilla::Util qw(trick_taint);
 
 use JSON::XS;
@@ -28,7 +29,10 @@ use File::Basename;
 # when it shouldn't
 %Bugzilla::Config::EXPORT_TAGS =
   (
-   admin => [qw(update_params SetParam write_params)],
+   admin => [qw(update_params
+                SetParam
+                call_param_onchange_handlers
+                write_params)],
   );
 Exporter::export_ok_tags('admin');
 
@@ -77,7 +81,7 @@ sub param_panels {
 sub SetParam {
     my ($name, $value) = @_;
 
-    _load_params unless %params;
+    _load_params() unless %params;
     die "Unknown param $name" unless (exists $params{$name});
 
     my $entry = $params{$name};
@@ -93,6 +97,19 @@ sub SetParam {
     }
 
     Bugzilla->params->{$name} = $value;
+}
+
+sub call_param_onchange_handlers {
+    my ($changes) = @_;
+
+    _load_params() unless %params;
+
+    foreach my $name (@$changes) {
+        my $param = $params{$name};
+        if (exists $param->{'onchange'}) {
+            $param->{'onchange'}->(Bugzilla->params->{$name});
+        }
+    }
 }
 
 sub update_params {
@@ -210,7 +227,7 @@ sub update_params {
 
     # --- DEFAULTS FOR NEW PARAMS ---
 
-    _load_params unless %params;
+    _load_params() unless %params;
     foreach my $name (keys %params) {
         my $item = $params{$name};
         unless (exists $param->{$name}) {
@@ -227,8 +244,10 @@ sub update_params {
         }
     }
 
-    # Bug 452525: OR based groups are on by default for new installations
-    $param->{'or_groups'} = 1 if $new_install;
+    if ($new_install) {
+        $param->{'or_groups'} = 1;
+        $param->{'use_email_as_login'} = 0;
+    }
 
     # --- REMOVE OLD PARAMS ---
 
@@ -258,27 +277,6 @@ sub update_params {
         }
         print "\n";
         $op_file->close;
-    }
-
-    if (ON_WINDOWS && !-e SENDMAIL_EXE
-        && $param->{'mail_delivery_method'} eq 'Sendmail')
-    {
-        my $smtp = $answer->{'SMTP_SERVER'};
-        if (!$smtp) {
-            print "\nBugzilla requires an SMTP server to function on",
-                  " Windows.\nPlease enter your SMTP server's hostname: ";
-            $smtp = <STDIN>;
-            chomp $smtp;
-            if ($smtp) {
-                $param->{'smtpserver'} = $smtp;
-             }
-             else {
-                print "\nWarning: No SMTP Server provided, defaulting to",
-                      " localhost\n";
-            }
-        }
-
-        $param->{'mail_delivery_method'} = 'SMTP';
     }
 
     write_params($param);
@@ -312,39 +310,38 @@ sub write_params {
 }
 
 sub read_param_file {
-    my %params;
+    my $params;
     my $file = bz_locations()->{'datadir'} . '/params.json';
 
     if (-e $file) {
         my $data;
         read_file($file, binmode => ':utf8', buf_ref => \$data);
+        trick_taint($data);
 
         # If params.json has been manually edited and e.g. some quotes are
         # missing, we don't want JSON::XS to leak the content of the file
         # to all users in its error message, so we have to eval'uate it.
-        %params = eval { %{JSON::XS->new->decode($data)} };
+        $params = eval { JSON::XS->new->decode($data) };
         if ($@) {
             my $error_msg = (basename($0) eq 'checksetup.pl') ?
                 $@ : 'run checksetup.pl to see the details.';
             die "Error parsing $file: $error_msg";
         }
-        # JSON::XS doesn't detaint data for us.
-        foreach my $key (keys %params) {
-            trick_taint($params{$key}) if defined $params{$key};
-        }
     }
     elsif ($ENV{'SERVER_SOFTWARE'}) {
-       # We're in a CGI, but the params file doesn't exist. We can't
-       # Template Toolkit, or even install_string, since checksetup
-       # might not have thrown an error. Bugzilla::CGI->new
-       # hasn't even been called yet, so we manually use CGI::Carp here
-       # so that the user sees the error.
-       require CGI::Carp;
-       CGI::Carp->import('fatalsToBrowser');
-       die "The $file file does not exist."
-           . ' You probably need to run checksetup.pl.',
+        # We're in a CGI, but the params file doesn't exist. We can't
+        # Template Toolkit, or even install_string, since checksetup
+        # might not have thrown an error. Bugzilla::CGI->new
+        # hasn't even been called yet, so we manually use CGI::Carp here
+        # so that the user sees the error.
+        unless (i_am_persistent()) {
+            require CGI::Carp;
+            CGI::Carp->import('fatalsToBrowser');
+        }
+        die "The $file file does not exist."
+            . ' You probably need to run checksetup.pl.',
     }
-    return \%params;
+    return $params // {};
 }
 
 1;
@@ -362,6 +359,7 @@ Bugzilla::Config - Configuration parameters for Bugzilla
 
   update_params();
   SetParam($param, $value);
+  call_param_onchange_handlers(\@changes);
   write_params();
 
 =head1 DESCRIPTION
@@ -391,6 +389,16 @@ Prints out information about what it's doing, if it makes any changes.
 
 May prompt the user for input, if certain required parameters are not
 specified.
+
+=item C<call_param_onchange_handlers(\@changes)>
+
+Expects a list of parameter names.
+For each parameter, checks whether there is a change handler defined,
+and if so, calls it.
+
+Params:  C<\@changes> (required) - A list of parameter names.
+
+Returns: nothing
 
 =item C<write_params($params)>
 

@@ -7,7 +7,7 @@
 
 package Bugzilla::DB;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -143,9 +143,12 @@ sub _handle_error {
         if length($_[0]) > 4000;
     $_[0] = Carp::longmess($_[0]);
 
-    if (Bugzilla->usage_mode == USAGE_MODE_BROWSER) {
-        ThrowCodeError("db_error", { err_message => $_[0] });
+    if (!Bugzilla->request_cache->{in_error} && Bugzilla->usage_mode == USAGE_MODE_BROWSER) {
+        Bugzilla->request_cache->{in_error} = 1;
+        ThrowCodeError("db_error", {err_message => $_[0]});
     }
+
+    Bugzilla->request_cache->{in_error} = undef;
 
     return 0; # Now let DBI handle raising the error
 }
@@ -162,10 +165,6 @@ sub bz_check_requirements {
             . bz_locations()->{'localconfig'};
     }
 
-    # Check the existence and version of the DBD that we need.
-    my $dbd = $db->{dbd};
-    _bz_check_dbd($db, $output);
-
     # We don't try to connect to the actual database if $db_check is
     # disabled.
     unless ($lc->{db_check}) {
@@ -178,27 +177,6 @@ sub bz_check_requirements {
     $dbh->bz_check_server_version($db, $output);
 
     print "\n" if $output;
-}
-
-sub _bz_check_dbd {
-    my ($db, $output) = @_;
-
-    my $dbd = $db->{dbd};
-    unless (have_vers($dbd, $output)) {
-        my $sql_server = $db->{name};
-        my $command = install_command($dbd);
-        my $root    = ROOT_USER;
-        my $dbd_mod = $dbd->{module};
-        my $dbd_ver = $dbd->{version};
-        die <<EOT;
-
-For $sql_server, Bugzilla requires that perl's $dbd_mod $dbd_ver or later be
-installed. To install this module, run the following command (as $root):
-
-    $command
-
-EOT
-    }
 }
 
 sub bz_check_server_version {
@@ -366,6 +344,31 @@ sub sql_position {
 
     return "POSITION($fragment IN $text)";
 }
+
+sub sql_like {
+    my ($self, $fragment, $column) = @_;
+
+    my $quoted = $self->quote($fragment);
+
+    return $self->sql_position($quoted, $column) . " > 0";
+}
+
+sub sql_ilike {
+    my ($self, $fragment, $column) = @_;
+
+    my $quoted = $self->quote($fragment);
+
+    return $self->sql_iposition($quoted, $column) . " > 0";
+}
+
+sub sql_not_ilike {
+    my ($self, $fragment, $column) = @_;
+
+    my $quoted = $self->quote($fragment);
+
+    return $self->sql_iposition($quoted, $column) . " = 0";
+}
+
 
 sub sql_group_by {
     my ($self, $needed_columns, $optional_columns) = @_;
@@ -1514,7 +1517,7 @@ __END__
 
 =head1 NAME
 
-Bugzilla::DB - Database access routines, using L<DBI>
+Bugzilla::DB - Database access routines, using L<DBI|https://metacpan.org/pod/DBI>
 
 =head1 SYNOPSIS
 
@@ -1775,7 +1778,7 @@ The constructor should create a DSN from the parameters provided and
 then call C<db_new()> method of its super class to create a new
 class instance. See L<db_new> description in this module. As per
 DBI documentation, all class variables must be prefixed with
-"private_". See L<DBI>.
+"private_". See L<DBI|https://metacpan.org/pod/DBI>.
 
 =back
 
@@ -2018,6 +2021,73 @@ Formatted SQL for substring search (scalar)
 
 Just like L</sql_position>, but case-insensitive.
 
+=item C<sql_like>
+
+=over
+
+=item B<Description>
+
+Outputs SQL to search for an instance of a string (fragment)
+in a table column (column).
+
+Note that the fragment must not be quoted. L</sql_like> will
+quote the fragment itself.
+
+This is a case sensitive search.
+
+Note: This does not necessarily generate an ANSI LIKE statement, but
+could be overridden to do so in a database subclass if required.
+
+=item B<Params>
+
+=over
+
+=item C<$fragment> - the string fragment that we are searching for (scalar)
+
+=item C<$column> - the column to search
+
+=back
+
+=item B<Returns>
+
+Formatted SQL to return results from columns that contain the fragment.
+
+=back
+
+=item C<sql_ilike>
+
+Just like L</sql_like>, but case-insensitive.
+
+=item C<sql_not_ilike>
+
+=over
+
+=item B<Description>
+
+Outputs SQL to search for columns (column) that I<do not> contain
+instances of the string (fragment).
+
+Note that the fragment must not be quoted. L</sql_not_ilike> will
+quote the fragment itself.
+
+This is a case insensitive search.
+
+=item B<Params>
+
+=over
+
+=item C<$fragment> - the string fragment that we are searching for (scalar)
+
+=item C<$column> - the column to search
+
+=back
+
+=item B<Returns>
+
+Formated sql to return results from columns that do not contain the fragment
+
+=back
+
 =item C<sql_group_by>
 
 =over
@@ -2246,7 +2316,8 @@ These methods return information about data in the database.
 Returns the last serial number, usually from a previous INSERT.
 
 Must be executed directly following the relevant INSERT.
-This base implementation uses L<DBI/last_insert_id>. If the
+This base implementation uses DBI's
+L<last_insert_id|https://metacpan.org/pod/DBI#last_insert_id>. If the
 DBD supports it, it is the preffered way to obtain the last
 serial index. If it is not supported, the DB-specific code
 needs to override this function.
@@ -2700,7 +2771,7 @@ our check for implementation of C<new> by derived class useless.
 
 =head1 SEE ALSO
 
-L<DBI>
+L<DBI|https://metacpan.org/pod/DBI>
 
 L<Bugzilla::Constants/DB_MODULE>
 

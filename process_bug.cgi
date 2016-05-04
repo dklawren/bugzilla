@@ -6,11 +6,11 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::Constants;
@@ -63,7 +63,7 @@ if (defined $cgi->param('id')) {
   $cgi->param('id', $bug->id);
   push(@bug_objects, $bug);
 } else {
-    foreach my $i ($cgi->param()) {
+    foreach my $i ($cgi->multi_param()) {
         if ($i =~ /^id_([1-9][0-9]*)/) {
             my $id = $1;
             push(@bug_objects, Bugzilla::Bug->check_for_edit($id));
@@ -78,7 +78,7 @@ my $first_bug = $bug_objects[0]; # Used when we're only updating a single bug.
 
 # Delete any parameter set to 'dontchange'.
 if (defined $cgi->param('dontchange')) {
-    foreach my $name ($cgi->param) {
+    foreach my $name ($cgi->multi_param()) {
         next if $name eq 'dontchange'; # But don't delete dontchange itself!
         # Skip ones we've already deleted (such as "defined_$name").
         next if !defined $cgi->param($name);
@@ -234,7 +234,7 @@ if (should_set('keywords')) {
 }
 if (should_set('comment')) {
     my $is_markdown = ($user->use_markdown
-                       && $cgi->param('use_markdown') eq '1') ? 1 : 0;
+                       && $cgi->param('use_markdown')) ? 1 : 0;
 
     $set_all_fields{comment} = {
         body        => scalar $cgi->param('comment'),
@@ -247,7 +247,7 @@ if (should_set('see_also')) {
         [split(/[\s]+/, $cgi->param('see_also'))];
 }
 if (should_set('remove_see_also')) {
-    $set_all_fields{'see_also'}->{remove} = [$cgi->param('remove_see_also')];
+    $set_all_fields{'see_also'}->{remove} = [$cgi->multi_param('remove_see_also')];
 }
 foreach my $dep_field (qw(dependson blocked)) {
     if (should_set($dep_field)) {
@@ -271,18 +271,18 @@ if (defined $cgi->param('newcc')
     # remove cc's... otherwise, we came from show_bug and may need to do both.
     if (defined $cgi->param('masscc')) {
         if ($cgi->param('ccaction') eq 'add') {
-            @cc_add = $cgi->param('masscc');
+            @cc_add = $cgi->multi_param('masscc');
         } elsif ($cgi->param('ccaction') eq 'remove') {
-            @cc_remove = $cgi->param('masscc');
+            @cc_remove = $cgi->multi_param('masscc');
         }
     } else {
-        @cc_add = $cgi->param('newcc');
+        @cc_add = $cgi->multi_param('newcc');
         push(@cc_add, $user) if $cgi->param('addselfcc');
 
         # We came from show_bug which uses a select box to determine what cc's
         # need to be removed...
         if ($cgi->param('removecc') && $cgi->param('cc')) {
-            @cc_remove = $cgi->param('cc');
+            @cc_remove = $cgi->multi_param('cc');
         }
     }
 
@@ -300,7 +300,7 @@ if (defined $cgi->param('id')) {
         # aliases need to be removed...
         my @alias_remove = ();
         if ($cgi->param('removealias') && $cgi->param('alias')) {
-            @alias_remove = $cgi->param('alias');
+            @alias_remove = $cgi->multi_param('alias');
         }
 
         $set_all_fields{alias} = { add => \@alias_add, remove => \@alias_remove };
@@ -308,15 +308,16 @@ if (defined $cgi->param('id')) {
 }
 
 my %is_private;
-foreach my $field (grep(/^defined_isprivate/, $cgi->param())) {
-    $field =~ /(\d+)$/;
-    my $comment_id = $1;
-    $is_private{$comment_id} = $cgi->param("isprivate_$comment_id");
+foreach my $field (grep(/^defined_isprivate/, $cgi->multi_param())) {
+    if ($field =~ /(\d+)$/a) {
+        my $comment_id = $1;
+        $is_private{$comment_id} = $cgi->param("isprivate_$comment_id");
+    }
 }
 $set_all_fields{comment_is_private} = \%is_private;
 
-my @check_groups = $cgi->param('defined_groups');
-my @set_groups = $cgi->param('groups');
+my @check_groups = $cgi->multi_param('defined_groups');
+my @set_groups = $cgi->multi_param('groups');
 my ($removed_groups) = diff_arrays(\@check_groups, \@set_groups);
 $set_all_fields{groups} = { add => \@set_groups, remove => $removed_groups };
 
@@ -324,7 +325,7 @@ my @custom_fields = Bugzilla->active_custom_fields;
 foreach my $field (@custom_fields) {
     my $fname = $field->name;
     if (should_set($fname, 1)) {
-        $set_all_fields{$fname} = [$cgi->param($fname)];
+        $set_all_fields{$fname} = [$cgi->multi_param($fname)];
     }
 }
 
@@ -347,12 +348,12 @@ if (defined $cgi->param('id')) {
     # product/component. The structure of flags code doesn't currently
     # allow them to be set using set_all.
     my ($flags, $new_flags) = Bugzilla::Flag->extract_flags_from_cgi(
-        $first_bug, undef, $vars);
+        $vars, undef, { bug => $first_bug } );
     $first_bug->set_flags($flags, $new_flags);
 
     # Tags can only be set to one bug at once.
     if (should_set('tag')) {
-        my @new_tags = split(/[\s,]+/, $cgi->param('tag'));
+        my @new_tags = grep { trim($_) } split(/,/, $cgi->param('tag'));
         my ($tags_removed, $tags_added) = diff_arrays($first_bug->tags, \@new_tags);
         $first_bug->remove_tag($_) foreach @$tags_removed;
         $first_bug->add_tag($_) foreach @$tags_added;
@@ -412,6 +413,10 @@ elsif ($action eq 'next_bug' or $action eq 'same_bug') {
         if ($action eq 'next_bug') {
             $vars->{'nextbug'} = $bug->id;
         }
+        # For performance reasons, preload visibility of dependencies
+        # and duplicates related to this bug.
+        Bugzilla::Bug->preload([$bug]);
+
         $template->process("bug/show.html.tmpl", $vars)
           || ThrowTemplateError($template->error());
         exit;

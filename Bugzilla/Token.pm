@@ -7,7 +7,7 @@
 
 package Bugzilla::Token;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -25,8 +25,16 @@ use Digest::SHA qw(hmac_sha256_base64);
 use parent qw(Exporter);
 
 @Bugzilla::Token::EXPORT = qw(issue_api_token issue_session_token
+                              issue_auth_delegation_token check_auth_delegation_token
                               check_token_data delete_token
                               issue_hash_token check_hash_token);
+
+# 128 bits password:
+# 128 * log10(2) / log10(62) = 21.49, round up to 22.
+# 62 = 0-9, a-z, A-Z.
+use constant TOKEN_LENGTH => 22;
+
+use constant SEND_NOW => 1;
 
 ################################################################################
 # Public Functions
@@ -36,8 +44,9 @@ use parent qw(Exporter);
 sub issue_api_token {
     # Generates a random token, adds it to the tokens table if one does not
     # already exist, and returns the token to the caller.
-    my $dbh  = Bugzilla->dbh;
-    my $user = Bugzilla->user;
+    my $dbh = Bugzilla->dbh;
+    # Allow certain UI components to work if impersonating another user.
+    my $user = Bugzilla->sudoer || Bugzilla->user;
     my ($token) = $dbh->selectrow_array("
         SELECT token FROM tokens
          WHERE userid = ? AND tokentype = 'api_token'
@@ -46,33 +55,66 @@ sub issue_api_token {
     return $token // _create_token($user->id, 'api_token', '');
 }
 
+sub issue_auth_delegation_token {
+    my ($uri) = @_;
+    my $dbh  = Bugzilla->dbh;
+    my $user = Bugzilla->user;
+    my $checksum = hmac_sha256_base64($user->id, $uri, Bugzilla->localconfig->{'site_wide_secret'});
+
+    return _create_token($user->id, 'auth_delegation', $checksum);
+}
+
+sub check_auth_delegation_token {
+    my ($token, $uri) = @_;
+    my $dbh  = Bugzilla->dbh;
+    my $user = Bugzilla->user;
+
+    my ($eventdata) = $dbh->selectrow_array("
+        SELECT eventdata FROM tokens
+         WHERE token = ? AND tokentype = 'auth_delegation'
+               AND (" . $dbh->sql_date_math('issuedate', '+', (MAX_TOKEN_AGE * 24 - 12), 'HOUR') . ") > NOW()",
+        undef, $token);
+
+    if ($eventdata) {
+        my $checksum = hmac_sha256_base64($user->id, $uri, Bugzilla->localconfig->{'site_wide_secret'});
+        if ($eventdata eq $checksum) {
+            delete_token($token);
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 # Creates and sends a token to create a new user account.
 # It assumes that the login has the correct format and is not already in use.
 sub issue_new_user_account_token {
-    my $login_name = shift;
+    my ($login, $email) = @_;
     my $dbh = Bugzilla->dbh;
     my $template = Bugzilla->template;
     my $vars = {};
 
-    # Is there already a pending request for this login name? If yes, do not throw
+    # Is there already a pending request for this email? If yes, do not throw
     # an error because the user may have lost their email with the token inside.
     # But to prevent using this way to mailbomb an email address, make sure
     # the last request is old enough before sending a new email (default: 10 minutes).
 
+    my $regexp = "^$email:";
     my $pending_requests = $dbh->selectrow_array(
         'SELECT COUNT(*)
            FROM tokens
           WHERE tokentype = ?
-                AND ' . $dbh->sql_istrcmp('eventdata', '?') . '
+                AND ' . $dbh->sql_regexp('eventdata', $dbh->quote($regexp)) . '
                 AND issuedate > '
                     . $dbh->sql_date_math('NOW()', '-', ACCOUNT_CHANGE_INTERVAL, 'MINUTE'),
-        undef, ('account', $login_name));
+        undef, 'account');
 
     ThrowUserError('too_soon_for_new_token', {'type' => 'account'}) if $pending_requests;
 
-    my ($token, $token_ts) = _create_token(undef, 'account', $login_name);
+    my ($token, $token_ts) = _create_token(undef, 'account', "$email:$login");
 
-    $vars->{'email'} = $login_name . Bugzilla->params->{'emailsuffix'};
+    $vars->{'login'} = $login;
+    $vars->{'email'} = $email;
     $vars->{'expiration_ts'} = ctime($token_ts + MAX_TOKEN_AGE * 86400);
     $vars->{'token'} = $token;
 
@@ -84,43 +126,49 @@ sub issue_new_user_account_token {
     # who made the request, and so it is reasonable to send the email in the same
     # language used to view the "Create a New Account" page (we cannot use their
     # user prefs as the user has no account yet!).
-    MessageToMTA($message);
+    MessageToMTA($message, SEND_NOW);
 }
 
 sub IssueEmailChangeToken {
-    my ($user, $new_email) = @_;
-    my $email_suffix = Bugzilla->params->{'emailsuffix'};
-    my $old_email = $user->login;
+    my $new_email = shift;
+    my $user = Bugzilla->user;
 
-    my ($token, $token_ts) = _create_token($user->id, 'emailold', $old_email . ":" . $new_email);
-
-    my $newtoken = _create_token($user->id, 'emailnew', $old_email . ":" . $new_email);
+    my ($token, $token_ts) = _create_token($user->id, 'emailold', $user->email . ":$new_email");
+    my $newtoken = _create_token($user->id, 'emailnew', $user->email . ":$new_email");
 
     # Mail the user the token along with instructions for using it.
 
     my $template = Bugzilla->template_inner($user->setting('lang'));
     my $vars = {};
 
-    $vars->{'oldemailaddress'} = $old_email . $email_suffix;
-    $vars->{'newemailaddress'} = $new_email . $email_suffix;
+    $vars->{'newemailaddress'} = $new_email;
     $vars->{'expiration_ts'} = ctime($token_ts + MAX_TOKEN_AGE * 86400);
-    $vars->{'token'} = $token;
-    $vars->{'emailaddress'} = $old_email . $email_suffix;
+
+    # First send an email to the new address. If this one doesn't exist,
+    # then the whole process must stop immediately. This means the email must
+    # be sent immediately and must not be stored in the queue.
+    $vars->{'token'} = $newtoken;
 
     my $message;
-    $template->process("account/email/change-old.txt.tmpl", $vars, \$message)
+    $template->process('account/email/change-new.txt.tmpl', $vars, \$message)
       || ThrowTemplateError($template->error());
 
-    MessageToMTA($message);
+    MessageToMTA($message, SEND_NOW);
 
-    $vars->{'token'} = $newtoken;
-    $vars->{'emailaddress'} = $new_email . $email_suffix;
+    # If we come here, then the new address exists. We now email the current
+    # address, but we don't want to stop the process if it no longer exists,
+    # to give a chance to the user to confirm the email address change.
+    $vars->{'token'} = $token;
 
-    $message = "";
-    $template->process("account/email/change-new.txt.tmpl", $vars, \$message)
+    $message = '';
+    $template->process('account/email/change-old.txt.tmpl', $vars, \$message)
       || ThrowTemplateError($template->error());
 
-    MessageToMTA($message);
+    eval { MessageToMTA($message, SEND_NOW); };
+
+    # Give the user a chance to cancel the process even if he never got
+    # the email above. The token is required.
+    return $token;
 }
 
 # Generates a random token, adds it to the tokens table, and sends it
@@ -256,7 +304,7 @@ sub GenerateUniqueToken {
         if ($tries > 100) {
             ThrowCodeError("token_generation_error");
         }
-        $token = generate_random_password();
+        $token = generate_random_password(TOKEN_LENGTH);
         $sth->execute($token);
         $duplicate = $sth->fetchrow_array;
     }
@@ -289,7 +337,17 @@ sub Cancel {
     # is no entry in the 'profiles' table.
     my $user = new Bugzilla::User($userid);
 
-    $vars->{'emailaddress'} = $userid ? $user->email : $eventdata;
+    if ($userid) {
+        $vars->{'emailaddress'} = $user->email;
+        $vars->{'login'} = $user->login;
+    }
+    else {
+        # Be careful! Some logins may contain ":" in them.
+        my ($email, $login) = split(':', $eventdata, 2);
+        $vars->{'emailaddress'} = $email;
+        $vars->{'login'} = $login;
+    }
+
     $vars->{'remoteaddress'} = remote_ip();
     $vars->{'token'} = $token;
     $vars->{'tokentype'} = $tokentype;
@@ -465,7 +523,7 @@ Bugzilla::Token - Provides different routines to manage tokens.
 
     use Bugzilla::Token;
 
-    Bugzilla::Token::issue_new_user_account_token($login_name);
+    Bugzilla::Token::issue_new_user_account_token($login, $email);
     Bugzilla::Token::IssueEmailChangeToken($user, $new_email);
     Bugzilla::Token::IssuePasswordToken($user);
     Bugzilla::Token::DeletePasswordTokens($user_id, $reason);
@@ -493,29 +551,28 @@ Bugzilla::Token - Provides different routines to manage tokens.
 
  Returns:     The token.
 
-=item C<issue_new_user_account_token($login_name)>
+=item C<issue_new_user_account_token($login, $email)>
 
  Description: Creates and sends a token per email to the email address
               requesting a new user account. It doesn't check whether
               the user account already exists. The user will have to
               use this token to confirm the creation of their user account.
 
- Params:      $login_name - The new login name requested by the user.
+ Params:      $login - The new login name requested by the user.
+              $email - The email address to be associated with the account.
 
  Returns:     Nothing. It throws an error if the same user made the same
               request in the last few minutes.
 
-=item C<sub IssueEmailChangeToken($user, $new_email)>
+=item C<sub IssueEmailChangeToken($new_email)>
 
  Description: Sends two distinct tokens per email to the old and new email
               addresses to confirm the email address change for the given
               user. These tokens remain valid for the next MAX_TOKEN_AGE days.
 
- Params:      $user      - User object of the user requesting a new
-                           email address.
-              $new_email - The new email address of the user.
+ Params:      $new_email - The new email address of the user.
 
- Returns:     Nothing.
+ Returns:     The token to cancel the request.
 
 =item C<IssuePasswordToken($user)>
 
@@ -607,6 +664,23 @@ although they can be used separately.
                        reference/checks.
 
  Returns:     A unique token.
+
+=item C<issue_auth_delegation_token($uri)>
+
+ Description: Creates and returns a token used to validate auth delegation confirmations.
+
+ Params:      $uri - The uri that auth will be delegated to.
+
+ Returns:     A unique token.
+
+=item C<check_auth_delegation_token($token, $uri)>
+
+ Description: Checks if a token $token is a confirmation token for $uri.
+
+ Params:      $token - The token returned by issue_auth_delegation_token()
+              $uri - The uri that auth will be delegated to.
+
+ Returns:     a boolean value
 
 =item C<check_token_data($token, $event)>
 

@@ -15,7 +15,7 @@ package Bugzilla::DB::Schema;
 #
 ###########################################################################
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -588,6 +588,8 @@ use constant ABSTRACT_SCHEMA => {
                             PRIMARYKEY => 1},
             name        => {TYPE => 'varchar(64)', NOTNULL => 1},
             description => {TYPE => 'MEDIUMTEXT', NOTNULL => 1},
+            is_active   => {TYPE => 'BOOLEAN', NOTNULL => 1,
+                            DEFAULT => 'TRUE'},
         ],
         INDEXES => [
             keyworddefs_name_idx   => {FIELDS => ['name'],
@@ -605,7 +607,6 @@ use constant ABSTRACT_SCHEMA => {
                           REFERENCES => {TABLE  => 'keyworddefs',
                                          COLUMN => 'id',
                                          DELETE => 'CASCADE'}},
-
         ],
         INDEXES => [
             keywords_bug_id_idx    => {FIELDS => [qw(bug_id keywordid)],
@@ -929,6 +930,7 @@ use constant ABSTRACT_SCHEMA => {
             userid         => {TYPE => 'MEDIUMSERIAL', NOTNULL => 1,
                                PRIMARYKEY => 1},
             login_name     => {TYPE => 'varchar(255)', NOTNULL => 1},
+            email          => {TYPE => 'varchar(255)', NOTNULL => 1},
             cryptpassword  => {TYPE => 'varchar(128)'},
             realname       => {TYPE => 'varchar(255)', NOTNULL => 1,
                                DEFAULT => "''"},
@@ -947,7 +949,9 @@ use constant ABSTRACT_SCHEMA => {
             profiles_login_name_idx => {FIELDS => ['login_name'],
                                         TYPE => 'UNIQUE'},
             profiles_extern_id_idx => {FIELDS => ['extern_id'],
-                                       TYPE   => 'UNIQUE'}
+                                       TYPE   => 'UNIQUE'},
+            profiles_email_idx => {FIELDS => ['email'],
+                                   TYPE => 'UNIQUE'}
         ],
     },
 
@@ -1147,7 +1151,7 @@ use constant ABSTRACT_SCHEMA => {
 
     logincookies => {
         FIELDS => [
-            cookie   => {TYPE => 'varchar(16)', NOTNULL => 1,
+            cookie   => {TYPE => 'varchar(22)', NOTNULL => 1,
                          PRIMARYKEY => 1},
             userid   => {TYPE => 'INT3', NOTNULL => 1,
                          REFERENCES => {TABLE  => 'profiles',
@@ -1189,7 +1193,7 @@ use constant ABSTRACT_SCHEMA => {
                                                          COLUMN => 'userid',
                                                          DELETE => 'CASCADE'}},
             issuedate => {TYPE => 'DATETIME', NOTNULL => 1} ,
-            token     => {TYPE => 'varchar(16)', NOTNULL => 1,
+            token     => {TYPE => 'varchar(22)', NOTNULL => 1,
                           PRIMARYKEY => 1},
             tokentype => {TYPE => 'varchar(16)', NOTNULL => 1} ,
             eventdata => {TYPE => 'TINYTEXT'},
@@ -1747,6 +1751,9 @@ use constant ABSTRACT_SCHEMA => {
             schema_data => {TYPE => 'LONGBLOB', NOTNULL => 1},
             version     => {TYPE => 'decimal(3,2)', NOTNULL => 1},
         ],
+        INDEXES => [
+            bz_schema_version_idx => {FIELDS => ['version'], TYPE => 'UNIQUE'},
+        ],
     },
 
     bug_user_last_visit => {
@@ -1778,15 +1785,17 @@ use constant ABSTRACT_SCHEMA => {
                               REFERENCES => {TABLE  => 'profiles',
                                              COLUMN => 'userid',
                                              DELETE => 'CASCADE'}},
-            api_key       => {TYPE => 'VARCHAR(40)', NOTNULL => 1},
-            description   => {TYPE => 'VARCHAR(255)'},
+            api_key       => {TYPE => 'varchar(40)', NOTNULL => 1},
+            description   => {TYPE => 'varchar(255)'},
             revoked       => {TYPE => 'BOOLEAN', NOTNULL => 1,
                               DEFAULT => 'FALSE'},
             last_used     => {TYPE => 'DATETIME'},
+            app_id        => {TYPE => 'varchar(64)'},
         ],
         INDEXES => [
             user_api_keys_api_key_idx => {FIELDS => ['api_key'], TYPE => 'UNIQUE'},
             user_api_keys_user_id_idx => ['user_id'],
+            user_api_keys_user_id_app_id_idx  => ['user_id', 'app_id'],
         ],
     },
 };
@@ -2327,13 +2336,21 @@ sub get_add_column_ddl {
 
     my ($self, $table, $column, $definition, $init_value) = @_;
     my @statements;
+    # If DEFAULT is undefined and the column is enforced to be NOT NULL,
+    # then we use the init value as a temporary default value.
+    my $temp_default = 0;
+    if ($definition->{NOTNULL} && !exists $definition->{DEFAULT} && defined $init_value) {
+        $temp_default = 1;
+        $definition->{DEFAULT} = $init_value;
+    }
+
     push(@statements, "ALTER TABLE $table ". $self->ADD_COLUMN ." $column " .
         $self->get_type_ddl($definition));
 
-    # XXX - Note that although this works for MySQL, most databases will fail
-    # before this point, if we haven't set a default.
-    (push(@statements, "UPDATE $table SET $column = $init_value"))
-        if defined $init_value;
+    if ($temp_default) {
+        push(@statements, $self->get_drop_default_ddl($table, $column));
+        delete $definition->{DEFAULT};
+    }
 
     if (defined $definition->{REFERENCES}) {
         push(@statements, $self->get_add_fks_sql($table, { $column =>
@@ -2341,6 +2358,21 @@ sub get_add_column_ddl {
     }
 
     return (@statements);
+}
+
+sub get_drop_default_ddl {
+
+=item C<get_drop_default_ddl>
+
+ Description: Gets SQL to drop the default value of a column.
+ Params:      $table  - The table containing the column.
+              $column - The name of the column whose default value must be dropped.
+ Returns:     A string containing the SQL to drop the default value.
+
+=cut
+
+    my ($self, $table, $column) = @_;
+    return "ALTER TABLE $table ALTER COLUMN $column DROP DEFAULT";
 }
 
 sub get_add_index_ddl {
@@ -2422,8 +2454,7 @@ sub get_alter_column_ddl {
     }
     # If we went from having a default to not having one
     elsif (!defined $default && defined $default_old) {
-        push(@statements, "ALTER TABLE $table ALTER COLUMN $column"
-                        . " DROP DEFAULT");
+        push(@statements, $self->get_drop_default_ddl($table, $column));
     }
     # If we went from no default to a default, or we changed the default.
     elsif ( (defined $default && !defined $default_old) || 

@@ -6,11 +6,11 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::Attachment;
@@ -44,7 +44,7 @@ unless ($cgi->param()) {
 }
 
 # Detect if the user already used the same form to submit a bug
-my $token = trim($cgi->param('token'));
+my $token = trim(scalar $cgi->param('token'));
 check_token_data($token, 'create_bug', 'index.cgi');
 
 # do a match on the fields if applicable
@@ -62,8 +62,6 @@ if (defined $cgi->param('maketemplate')) {
       || ThrowTemplateError($template->error());
     exit;
 }
-
-umask 0;
 
 # The format of the initial comment can be structured by adding fields to the
 # enter_bug template and then referencing them in the comment template.
@@ -114,7 +112,7 @@ foreach my $field (@bug_fields) {
 }
 foreach my $field (qw(cc groups)) {
     next if !$cgi->should_set($field);
-    $bug_params{$field} = [$cgi->param($field)];
+    $bug_params{$field} = [$cgi->multi_param($field)];
 }
 $bug_params{'comment'} = $comment;
 $bug_params{'is_markdown'} = $cgi->param('use_markdown');
@@ -124,8 +122,20 @@ my @multi_selects = grep {$_->type == FIELD_TYPE_MULTI_SELECT && $_->enter_bug}
 
 foreach my $field (@multi_selects) {
     next if !$cgi->should_set($field->name);
-    $bug_params{$field->name} = [$cgi->param($field->name)];
+    $bug_params{$field->name} = [$cgi->multi_param($field->name)];
 }
+
+
+my $product = Bugzilla::Product->check($bug_params{'product'});
+my $component_id = Bugzilla::Component->check({
+    product => $product,
+    name => $bug_params{'component'}})->id;
+
+# Set bug flags.
+my (undef, $flag_data) = Bugzilla::Flag->extract_flags_from_cgi($vars, SKIP_REQUESTEE_ON_ERROR,{
+                                                         product_id => $product->id,
+                                                         component_id => $component_id });
+$bug_params{flags} = $flag_data;
 
 my $bug = Bugzilla::Bug->create(\%bug_params);
 
@@ -155,7 +165,7 @@ my $data_fh = $cgi->upload('data');
 my $attach_text = $cgi->param('attach_text');
 
 if ($data_fh || $attach_text) {
-    $cgi->param('isprivate', $cgi->param('comment_is_private'));
+    $cgi->param('isprivate', scalar $cgi->param('comment_is_private'));
 
     # Must be called before create() as it may alter $cgi->param('ispatch').
     my $content_type = Bugzilla::Attachment::get_content_type();
@@ -182,7 +192,8 @@ if ($data_fh || $attach_text) {
     if ($attachment) {
         # Set attachment flags.
         my ($flags, $new_flags) = Bugzilla::Flag->extract_flags_from_cgi(
-                                      $bug, $attachment, $vars, SKIP_REQUESTEE_ON_ERROR);
+                                       $vars, SKIP_REQUESTEE_ON_ERROR,
+                                       { bug => $bug, attachment => $attachment });
         $attachment->set_flags($flags, $new_flags);
         $attachment->update($timestamp);
         my $comment = $bug->comments->[0];
@@ -195,11 +206,6 @@ if ($data_fh || $attach_text) {
     }
 }
 
-# Set bug flags.
-my ($flags, $new_flags) = Bugzilla::Flag->extract_flags_from_cgi($bug, undef, $vars,
-                                                             SKIP_REQUESTEE_ON_ERROR);
-$bug->set_flags($flags, $new_flags);
-$bug->update($timestamp);
 
 $vars->{'id'} = $id;
 $vars->{'bug'} = $bug;

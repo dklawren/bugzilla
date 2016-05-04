@@ -47,7 +47,7 @@
     </p>
 
     <p>
-      [% "$terms.Bug $bug.bug_id" FILTER bug_link(bug, {full_url => 1, user => to_user}) FILTER none %]:
+      [% INCLUDE bug/link.html.tmpl bug = bug, link_text = "$terms.Bug $bug.id", full_url = 1, user = to_user %]:
       [%= bug.short_desc FILTER html %]
     </p>
 
@@ -62,9 +62,11 @@
     [% Hook.process('after_summary') %]
 
     <p>
-      [% FOREACH comment = new_comments %]
+      [% comment_anchor = '' %]
+      [% FOREACH comment = new_comments.reverse %]
         <div>
           [% IF comment.count %]
+            [% comment_anchor = "#c$comment.count" %]
             <b>[% "Comment # ${comment.count}" FILTER bug_link(bug,
                 {comment_num => comment.count, full_url => 1, user => to_user}) FILTER none =%]
             on [% "$terms.bug $bug.id" FILTER bug_link(bug, { full_url => 1, user => to_user }) FILTER none =%]
@@ -73,9 +75,19 @@
             <b>Description:</b>
           [% END %]
           [% comment_div = comment.is_markdown ? "div" : "pre" %]
-          <[% comment_div FILTER none %] class="bz_comment_text">[% comment.body_full({ wrap => 1 }) FILTER markdown(bug, comment, to_user) %]</[% comment_div FILTER none %]>
+          [% wrap = comment.is_markdown ? 0 : 1 %]
+          <[% comment_div FILTER none %] class="bz_comment_text">[% comment.body_full({ wrap => wrap }) FILTER markdown(bug, comment, to_user) %]</[% comment_div FILTER none %]>
         </div>
       [% END %]
     </p>
+
+    <div itemscope itemtype="http://schema.org/EmailMessage">
+      <div itemprop="action" itemscope itemtype="http://schema.org/ViewAction">
+        [%# Filtering of the URL param is not required & would break the URL when the comment anchor is set %]
+        <link itemprop="url" href="[% urlbase FILTER html %]show_bug.cgi?id=[% "$bug.id$comment_anchor" FILTER none %]">
+        <meta itemprop="name" content="View [% terms.bug %]">
+      </div>
+      <meta itemprop="description" content="[% terms.Bugzilla %] [%+ terms.bug %] update notification">
+    </div>
   </body>
 </html>

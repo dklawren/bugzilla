@@ -27,11 +27,11 @@
 # Bonus:
 # Offer subscription when you get a "series already exists" error?
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use Bugzilla;
 use Bugzilla::Constants;
@@ -58,7 +58,7 @@ if (!Bugzilla->feature('new_charts')) {
 }
 
 # Go back to query.cgi if we are adding a boolean chart parameter.
-if (grep(/^cmd-/, $cgi->param())) {
+if (grep(/^cmd-/, $cgi->multi_param())) {
     my $params = $cgi->canonicalise_query("format", "ctype", "action");
     print $cgi->redirect("query.cgi?format=" . $cgi->param('query_format') .
                                                ($params ? "&$params" : ""));
@@ -73,7 +73,7 @@ $vars->{'doc_section'} = 'using/reports-and-charts.html#charts';
 # of the action param, because that value is localization-dependent. So, we
 # encode it in the name, as "action-<action>". Some params even contain the
 # series_id they apply to (e.g. subscribe, unsubscribe).
-my @actions = grep(/^action-/, $cgi->param());
+my @actions = grep(/^action-/, $cgi->multi_param());
 if ($actions[0] && $actions[0] =~ /^action-([^\d]+)(\d*)$/) {
     $action = $1;
     $series_id = $2 if $2;
@@ -224,14 +224,14 @@ exit;
 
 # Find any selected series and return either the first or all of them.
 sub getAndValidateSeriesIDs {
-    my @series_ids = grep(/^\d+$/, $cgi->param("name"));
+    my @series_ids = grep(/^\d+$/, $cgi->multi_param("name"));
 
     return wantarray ? @series_ids : $series_ids[0];
 }
 
 # Return a list of IDs of all the lines selected in the UI.
 sub getSelectedLines {
-    my @ids = map { /^select(\d+)$/ ? $1 : () } $cgi->param();
+    my @ids = map { /^select(\d+)$/a ? $1 : () } $cgi->multi_param();
 
     return @ids;
 }
@@ -305,15 +305,14 @@ sub plot {
     $vars->{'chart'} = new Bugzilla::Chart($cgi);
 
     my $format = $template->get_format("reports/chart", "", scalar($cgi->param('ctype')));
+    $format->{'ctype'} = 'text/html' if $cgi->param('debug');
 
-    # Debugging PNGs is a pain; we need to be able to see the error messages
-    if ($cgi->param('debug')) {
-        print $cgi->header();
-        $vars->{'chart'}->dump();
-    }
-
+    $cgi->set_dated_content_disp('inline', 'chart', $format->{extension});
     print $cgi->header($format->{'ctype'});
     disable_utf8() if ($format->{'ctype'} =~ /^image\//);
+
+    # Debugging PNGs is a pain; we need to be able to see the error messages
+    $vars->{'chart'}->dump() if $cgi->param('debug');
 
     $template->process($format->{'template'}, $vars)
       || ThrowTemplateError($template->error());

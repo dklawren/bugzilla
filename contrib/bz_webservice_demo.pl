@@ -18,7 +18,7 @@ C<bz_webservice_demo.pl --help> for detailed help
 
 =cut
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -258,8 +258,6 @@ if ($fetch_extension_info) {
 
 Call C<Bug.get> with the ID of the bug you want to know more of.
 The call will return a C<Bugzilla::Bug> object.
-
-Note: You can also use "Bug.get_bugs" for compatibility with Bugzilla 3.0 API.
 
 =cut
 

@@ -10,11 +10,11 @@
 #Bugzilla Test 2#
 ####GoodPerl#####
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib 't';
+use lib qw(. lib local/lib/perl5 t);
 
 use Support::Files;
 
@@ -40,7 +40,7 @@ foreach my $file (@testitems) {
         ok(1,"$file does not have a shebang");
     } else {
         my $flags;
-        if (!defined $ext || $ext eq "pl") {
+        if (!defined $ext || $ext eq 'pl' || $ext eq 'psgi') {
             # standalone programs aren't taint checked yet
             if (grep { $file eq $_ } @require_taint) {
                 $flags = 'T';
@@ -88,16 +88,16 @@ foreach my $file (@testitems) {
         next;
     }
     while (my $file_line = <FILE>) {
-        $found_use_perl = 1 if $file_line =~ m/^\s*use 5.10.1/;
+        $found_use_perl = 1 if $file_line =~ m/^\s*use 5\.14\.0/;
         $found_use_strict = 1 if $file_line =~ m/^\s*use strict/;
         $found_use_warnings = 1 if $file_line =~ m/^\s*use warnings/;
         last if ($found_use_perl && $found_use_strict && $found_use_warnings);
     }
     close (FILE);
     if ($found_use_perl) {
-        ok(1,"$file requires Perl 5.10.1");
+        ok(1,"$file requires Perl 5.14.0");
     } else {
-        ok(0,"$file DOES NOT require Perl 5.10.1 --WARNING");
+        ok(0,"$file DOES NOT require Perl 5.14.0 --WARNING");
     }
 
     if ($found_use_strict) {

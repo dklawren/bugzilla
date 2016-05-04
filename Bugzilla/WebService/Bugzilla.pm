@@ -7,7 +7,7 @@
 
 package Bugzilla::WebService::Bugzilla;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -56,27 +56,25 @@ use constant PARAMETERS_LOGGED_IN => qw(
     attachment_base
     commentonchange_resolution
     commentonduplicate
-    cookiepath
     defaultopsys
     defaultplatform
     defaultpriority
     defaultseverity
     duplicate_or_move_bug_status
     emailregexpdesc
-    emailsuffix
     letsubmitterchoosemilestone
     letsubmitterchoosepriority
     mailfrom
     maintainer
     maxattachmentsize
     maxlocalattachment
-    musthavemilestoneonaccept
     password_complexity
     rememberlogin
     requirelogin
     resolution_forbidden_with_open_blockers
     search_allow_no_criteria
     urlbase
+    use_email_as_login
     use_see_also
     useclassification
     usemenuforusers
@@ -153,7 +151,7 @@ sub last_audit_time {
 
 sub parameters {
     my ($self, $args) = @_;
-    my $user = Bugzilla->login();
+    my $user = Bugzilla->login(LOGIN_OPTIONAL);
     my $params = Bugzilla->params;
     $args ||= {};
 
@@ -413,27 +411,25 @@ A logged-in user can access the following parameters (listed alphabetically):
     C<attachment_base>,
     C<commentonchange_resolution>,
     C<commentonduplicate>,
-    C<cookiepath>,
     C<defaultopsys>,
     C<defaultplatform>,
     C<defaultpriority>,
     C<defaultseverity>,
     C<duplicate_or_move_bug_status>,
     C<emailregexpdesc>,
-    C<emailsuffix>,
     C<letsubmitterchoosemilestone>,
     C<letsubmitterchoosepriority>,
     C<mailfrom>,
     C<maintainer>,
     C<maxattachmentsize>,
     C<maxlocalattachment>,
-    C<musthavemilestoneonaccept>,
     C<password_complexity>,
     C<rememberlogin>,
     C<requirelogin>,
     C<resolution_forbidden_with_open_blockers>,
     C<search_allow_no_criteria>,
     C<urlbase>,
+    C<use_email_as_login>,
     C<use_see_also>,
     C<useclassification>,
     C<usemenuforusers>,

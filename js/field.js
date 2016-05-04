@@ -87,129 +87,6 @@ function _errorFor(field, name) {
     YAHOO.util.Dom.addClass(field, 'validation_error_field');
 }
 
-/* This function is never to be called directly, but only indirectly
- * using template/en/default/global/calendar.js.tmpl, so that localization
- * works. For the same reason, if you modify this function's parameter list,
- * you need to modify the documentation in said template as well. */
-function createCalendar(name, start_weekday, months_long, weekdays_short) {
-    var cal = new YAHOO.widget.Calendar('calendar_' + name, 
-                                        'con_calendar_' + name,
-                                        { START_WEEKDAY:  start_weekday,
-                                          MONTHS_LONG:    months_long,
-                                          WEEKDAYS_SHORT: weekdays_short
-                                        });
-    YAHOO.bugzilla['calendar_' + name] = cal;
-    var field = document.getElementById(name);
-    cal.selectEvent.subscribe(setFieldFromCalendar, field, false);
-    updateCalendarFromField(field);
-    cal.render();
-}
-
-/* The onclick handlers for the button that shows the calendar. */
-function showCalendar(field_name) {
-    var calendar  = YAHOO.bugzilla["calendar_" + field_name];
-    var field     = document.getElementById(field_name);
-    var button    = document.getElementById('button_calendar_' + field_name);
-
-    bz_overlayBelow(calendar.oDomContainer, field);
-    calendar.show();
-    button.onclick = function() { hideCalendar(field_name); };
-
-    // Because of the way removeListener works, this has to be a function
-    // attached directly to this calendar.
-    calendar.bz_myBodyCloser = function(event) {
-        var container = this.oDomContainer;
-        var target    = YAHOO.util.Event.getTarget(event);
-        if (target != container && target != button
-            && !YAHOO.util.Dom.isAncestor(container, target))
-        {
-            hideCalendar(field_name);
-        }
-    };
-
-    // If somebody clicks outside the calendar, hide it.
-    YAHOO.util.Event.addListener(document.body, 'click', 
-                                 calendar.bz_myBodyCloser, calendar, true);
-
-    // Make Esc close the calendar.
-    calendar.bz_escCal = function (event) {
-        var key = YAHOO.util.Event.getCharCode(event);
-        if (key == 27) {
-            hideCalendar(field_name);
-        }
-    };
-    YAHOO.util.Event.addListener(document.body, 'keydown', calendar.bz_escCal);
-}
-
-function hideCalendar(field_name) {
-    var cal = YAHOO.bugzilla["calendar_" + field_name];
-    cal.hide();
-    var button = document.getElementById('button_calendar_' + field_name);
-    button.onclick = function() { showCalendar(field_name); };
-    YAHOO.util.Event.removeListener(document.body, 'click',
-                                    cal.bz_myBodyCloser);
-    YAHOO.util.Event.removeListener(document.body, 'keydown', cal.bz_escCal);
-}
-
-/* This is the selectEvent for our Calendar objects on our custom 
- * DateTime fields.
- */
-function setFieldFromCalendar(type, args, date_field) {
-    var dates = args[0];
-    var setDate = dates[0];
-
-    // We can't just write the date straight into the field, because there 
-    // might already be a time there.
-    var timeRe = /\b(\d{1,2}):(\d\d)(?::(\d\d))?/;
-    var currentTime = timeRe.exec(date_field.value);
-    var d = new Date(setDate[0], setDate[1] - 1, setDate[2]);
-    if (currentTime) {
-        d.setHours(currentTime[1], currentTime[2]);
-        if (currentTime[3]) {
-            d.setSeconds(currentTime[3]);
-        }
-    }
-
-    var year = d.getFullYear();
-    // JavaScript's "Date" represents January as 0 and December as 11.
-    var month = d.getMonth() + 1;
-    if (month < 10) month = '0' + String(month);
-    var day = d.getDate();
-    if (day < 10) day = '0' + String(day);
-    var dateStr = year + '-' + month  + '-' + day;
-
-    if (currentTime) {
-        var minutes = d.getMinutes();
-        if (minutes < 10) minutes = '0' + String(minutes);
-        var seconds = d.getSeconds();
-        if (seconds > 0 && seconds < 10) {
-            seconds = '0' + String(seconds);
-        }
-
-        dateStr = dateStr + ' ' + d.getHours() + ':' + minutes;
-        if (seconds) dateStr = dateStr + ':' + seconds;
-    }
-
-    date_field.value = dateStr;
-    hideCalendar(date_field.id);
-}
-
-/* Sets the calendar based on the current field value. 
- */ 
-function updateCalendarFromField(date_field) {
-    var dateRe = /(\d\d\d\d)-(\d\d?)-(\d\d?)/;
-    var pieces = dateRe.exec(date_field.value);
-    if (pieces) {
-        var cal = YAHOO.bugzilla["calendar_" + date_field.id];
-        cal.select(new Date(pieces[1], pieces[2] - 1, pieces[3]));
-        var selectedArray = cal.getSelectedDates();
-        var selected = selectedArray[0];
-        cal.cfg.setProperty("pagedate", (selected.getMonth() + 1) + '/' 
-                                        + selected.getFullYear());
-        cal.render();
-    }
-}
-
 function setupEditLink(id) {
     var link_container = 'container_showhide_' + id;
     var input_container = 'container_' + id;
@@ -506,7 +383,8 @@ function handleVisControllerValueChange(e, args) {
     var controller = args[1];
     var values = args[2];
 
-    var label_container = 
+    var field = document.getElementById(controlled_id);
+    var label_container =
         document.getElementById('field_label_' + controlled_id);
     var field_container =
         document.getElementById('field_container_' + controlled_id);
@@ -521,10 +399,45 @@ function handleVisControllerValueChange(e, args) {
     if (selected) {
         YAHOO.util.Dom.removeClass(label_container, 'bz_hidden_field');
         YAHOO.util.Dom.removeClass(field_container, 'bz_hidden_field');
+        /* If a custom field such as a textarea field contains some text, then
+         * its content is visible by default as a readonly field (assuming that
+         * the field is displayed). But if such a custom field contains no text,
+         * then it's not displayed at all and an (edit) link is displayed instead.
+         * This is problematic if the custom field is mandatory, because at least
+         * Firefox complains that you must enter a value, but is unable to point
+         * to the custom field because this one is hidden, and so the user has
+         * to guess what the web browser is talking about, which is confusing.
+         * So in that case, we display the custom field automatically instead of
+         * the (edit) link, so that the user can enter some text in it.
+         */
+        var field_readonly = document.getElementById(controlled_id + '_readonly');
+
+        if (!field_readonly) {
+            var field_input = document.getElementById(controlled_id + '_input');
+            var edit_container =
+                document.getElementById(controlled_id + '_edit_container');
+
+            if (field_input) {
+                YAHOO.util.Dom.removeClass(field_input, 'bz_default_hidden');
+            }
+            if (edit_container) {
+                YAHOO.util.Dom.addClass(edit_container, 'bz_hidden_field');
+            }
+        }
+        // Restore the 'required' attribute for mandatory fields.
+        if (field.getAttribute('data-required') == "true") {
+            field.setAttribute('required', 'true');
+            field.setAttribute('aria-required', 'true');
+        }
     }
     else {
         YAHOO.util.Dom.addClass(label_container, 'bz_hidden_field');
         YAHOO.util.Dom.addClass(field_container, 'bz_hidden_field');
+        // A hidden field must never be required, because the user cannot set it.
+        if (field.getAttribute('data-required') == "true") {
+            field.removeAttribute('required');
+            field.removeAttribute('aria-required');
+        }
     }
 }
 
@@ -805,117 +718,101 @@ function browserCanHideOptions(aSelect) {
 /* (end) option hiding code */
 
 /**
- * The Autoselect
+ * Autocompletion
  */
-YAHOO.bugzilla.userAutocomplete = {
-    counter : 0,
-    dataSource : null,
-    generateRequest : function ( enteredText ){ 
-      YAHOO.bugzilla.userAutocomplete.counter = 
-                                   YAHOO.bugzilla.userAutocomplete.counter + 1;
-      YAHOO.util.Connect.setDefaultPostHeader('application/json', true);
-      var json_object = {
-          method : "User.get",
-          id : YAHOO.bugzilla.userAutocomplete.counter,
-          params : [ { 
-            Bugzilla_api_token: BUGZILLA.api_token,
-            match : [ decodeURIComponent(enteredText) ],
-            include_fields : [ "name", "real_name" ]
-          } ]
-      };
-      var stringified =  YAHOO.lang.JSON.stringify(json_object);
-      var debug = { msg: "json-rpc obj debug info", "json obj": json_object, 
-                    "param" : stringified}
-      YAHOO.bugzilla.userAutocomplete.debug_helper( debug );
-      return stringified;
-    },
-    resultListFormat : function(oResultData, enteredText, sResultMatch) {
-        return ( YAHOO.lang.escapeHTML(oResultData.real_name) + " ("
-                 + YAHOO.lang.escapeHTML(oResultData.name) + ")");
-    },
-    debug_helper : function ( ){
-        /* used to help debug any errors that might happen */
-        if( typeof(console) !== 'undefined' && console != null && arguments.length > 0 ){
-            console.log("debug helper info:", arguments);
-        }
-        return true;
-    },    
-    init_ds : function(){
-        this.dataSource = new YAHOO.util.XHRDataSource("jsonrpc.cgi");
-        this.dataSource.connTimeout = 30000;
-        this.dataSource.connMethodPost = true;
-        this.dataSource.connXhrMode = "cancelStaleRequests";
-        this.dataSource.maxCacheEntries = 5;
-        this.dataSource.responseSchema = {
-            resultsList : "result.users",
-            metaFields : { error: "error", jsonRpcId: "id"},
-            fields : [
-                { key : "name" },
-                { key : "real_name"}
-            ]
-        };
-    },
-    init : function( field, container, multiple ) {
-        if( this.dataSource == null ){
-            this.init_ds();  
-        }            
-        var userAutoComp = new YAHOO.widget.AutoComplete( field, container, 
-                                this.dataSource );
-        // other stuff we might want to do with the autocomplete goes here
-        userAutoComp.maxResultsDisplayed = BUGZILLA.param.maxusermatches;
-        userAutoComp.generateRequest = this.generateRequest;
-        userAutoComp.formatResult = this.resultListFormat;
-        userAutoComp.doBeforeLoadData = this.debug_helper;
-        userAutoComp.minQueryLength = 3;
-        userAutoComp.autoHighlight = false;
-        // this is a throttle to determine the delay of the query from typing
-        // set this higher to cause fewer calls to the server
-        userAutoComp.queryDelay = 0.05;
-        userAutoComp.useIFrame = true;
-        userAutoComp.resultTypeList = false;
-        if( multiple == true ){
-            userAutoComp.delimChar = [","];
-        }
-        
-    }
-};
 
-YAHOO.bugzilla.fieldAutocomplete = {
-    dataSource : [],
-    init_ds : function( field ) {
-        this.dataSource[field] =
-          new YAHOO.util.LocalDataSource( YAHOO.bugzilla.field_array[field] );
-    },
-    init : function( field, container ) {
-        if( this.dataSource[field] == null ) {
-            this.init_ds( field );
-        }
-        var fieldAutoComp =
-          new YAHOO.widget.AutoComplete(field, container, this.dataSource[field]);
-        fieldAutoComp.maxResultsDisplayed = YAHOO.bugzilla.field_array[field].length;
-        fieldAutoComp.formatResult = fieldAutoComp.formatEscapedResult;
-        fieldAutoComp.minQueryLength = 0;
-        fieldAutoComp.useIFrame = true;
-        fieldAutoComp.delimChar = [","," "];
-        fieldAutoComp.resultTypeList = false;
-        fieldAutoComp.queryDelay = 0;
-        /*  Causes all the possibilities in the field to appear when a user
-         *  focuses on the textbox 
-         */
-        fieldAutoComp.textboxFocusEvent.subscribe( function(){
-            var sInputValue = YAHOO.util.Dom.get(field).value;
-            if( sInputValue.length === 0
-                && YAHOO.bugzilla.field_array[field].length > 0 ){
-                this.sendQuery(sInputValue);
-                this.collapseContainer();
-                this.expandContainer();
+$(function() {
+
+    // single user
+
+    function searchComplete() {
+        var that = $(this);
+        that.data('counter', that.data('counter') - 1);
+        if (that.data('counter') === 0)
+            that.removeClass('autocomplete-running');
+        if (document.activeElement != this)
+            that.autocomplete('hide');
+    };
+
+    var options_user = {
+        serviceUrl: 'rest/user',
+        params: {
+            Bugzilla_api_token: BUGZILLA.api_token,
+            include_fields: 'name,real_name',
+            limit: 100
+        },
+        paramName: 'match',
+        deferRequestBy: 250,
+        minChars: 3,
+        tabDisabled: true,
+        transformResult: function(response) {
+            response = $.parseJSON(response);
+            return {
+                suggestions: $.map(response.users, function(dataItem) {
+                    return {
+                        value: dataItem.name,
+                        data : { login: dataItem.name, name: dataItem.real_name }
+                    };
+                })
+            };
+        },
+        formatResult: function(suggestion, currentValue) {
+            return (suggestion.data.name === '' ?
+                suggestion.data.login : suggestion.data.name + ' (' + suggestion.data.login + ')')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        },
+        onSearchStart: function(params) {
+            var that = $(this);
+            params.match = $.trim(params.match);
+            that.addClass('autocomplete-running');
+            that.data('counter', that.data('counter') + 1);
+        },
+        onSearchComplete: searchComplete,
+        onSearchError: searchComplete
+    };
+
+    // multiple users (based on single user)
+    var options_users = {
+        delimiter: /,\s*/,
+        onSelect: function() {
+            this.focus();
+        },
+    };
+    $.extend(options_users, options_user);
+
+    // init user autocomplete fields
+    $('.bz_autocomplete_user')
+        .each(function() {
+            var that = $(this);
+            that.data('counter', 0);
+            if (that.data('multiple')) {
+                that.devbridgeAutocomplete(options_users);
             }
+            else {
+                that.devbridgeAutocomplete(options_user);
+            }
+            that.addClass('bz_autocomplete');
         });
-        fieldAutoComp.dataRequestEvent.subscribe( function(type, args) {
-            args[0].autoHighlight = args[1] != '';
+
+    // init autocomplete fields with array of values
+    $('.bz_autocomplete_values')
+        .each(function() {
+            var that = $(this);
+            that.devbridgeAutocomplete({
+                lookup: BUGZILLA.autocomplete_values[that.data('values')],
+                tabDisabled: true,
+                delimiter: /,\s*/,
+                minChars: 0,
+                onSelect: function() {
+                    this.focus();
+                }
+            });
+            that.addClass('bz_autocomplete');
         });
-    }
-};
+});
 
 /**
  * Set the disable email checkbox to true if the user has disabled text

@@ -23,7 +23,7 @@
   title = title
   style_urls = ['skins/standard/admin.css']
   onload="var f = document.forms['flagtype_properties'];
-          selectProduct(f.product, f.component, null, null, '__Any__');"
+          selectProduct(f.product, f.component, '__Any__');"
   javascript_urls=["js/productform.js"]
   doc_section = "administering/flags.html"
 %]
@@ -92,7 +92,7 @@
                 id       => "product"
                 name     => "product"
                 add      => "__Any__"
-                onchange => "selectProduct(this, this.form.component, null, null, '__Any__');"
+                onchange => "selectProduct(this, this.form.component, '__Any__');"
                 products => products
               %]<br>
               <select name="component">
@@ -161,11 +161,7 @@
         if requestable, who should get carbon copied on email notification of requests.
         This is a comma-separated list of full e-mail addresses which do not
         need to be [% terms.Bugzilla %] logins.
-        [% IF Param('emailsuffix') %]
-          Note that the configured emailsuffix
-          <kbd>[% Param('emailsuffix') %]</kbd> will <em>not</em> be appended
-          to these addresses, so you should add it explicitly if so desired.
-        [% END %]<br>
+        <br>
         <input type="text" name="cc_list" value="[% type.cc_list FILTER html %]" size="80"
                maxlength="200" [%- ' disabled="disabled"' UNLESS can_fully_edit %]>
       </td>

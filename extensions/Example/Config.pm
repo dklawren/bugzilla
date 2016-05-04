@@ -7,7 +7,7 @@
 
 package Bugzilla::Extension::Example;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -28,5 +28,13 @@ use constant OPTIONAL_MODULES => [
         feature => ['example_acme'],
     },
 ];
+
+# The map determines which verion of
+# the Core API an extension's API modules
+# were written to work with.
+use constant API_VERSION_MAP => {
+    '1_0' => '1_0',
+    '2_0' => '1_0'
+};
 
 __PACKAGE__->NAME;

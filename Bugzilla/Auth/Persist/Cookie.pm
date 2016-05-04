@@ -7,7 +7,7 @@
 
 package Bugzilla::Auth::Persist::Cookie;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -94,11 +94,13 @@ sub logout {
     my $cgi = Bugzilla->cgi;
     my $input = Bugzilla->input_params;
     $param = {} unless $param;
-    my $user = $param->{user} || Bugzilla->user;
+    my $user = $param->{user} || Bugzilla->sudoer || Bugzilla->user;
     my $type = $param->{type} || LOGOUT_ALL;
 
     if ($type == LOGOUT_ALL) {
         $dbh->do("DELETE FROM logincookies WHERE userid = ?",
+                 undef, $user->id);
+        $dbh->do("DELETE FROM tokens WHERE userid = ? AND tokentype = 'sudo'",
                  undef, $user->id);
         return;
     }
@@ -144,6 +146,8 @@ sub logout {
                  $dbh->sql_in('cookie', \@login_cookies) .
                  " AND userid = ?",
                  undef, $user->id);
+        my $token = $cgi->cookie('sudo');
+        delete_token($token);
     } else {
         die("Invalid type $type supplied to logout()");
     }

@@ -7,7 +7,7 @@
 
 package Bugzilla::Search;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -287,6 +287,14 @@ use constant OPERATOR_FIELD_OVERRIDE => {
         _default => \&_days_elapsed,
     },
     dependson        => MULTI_SELECT_OVERRIDE,
+    dupe_of          => {
+        %{ &MULTI_SELECT_OVERRIDE },
+        changedby     => \&_dupe_of_changedby,
+        changedbefore => \&_dupe_of_changedbefore_after,
+        changedafter  => \&_dupe_of_changedbefore_after,
+        changedfrom   => \&_invalid_combination,
+        changedto     => \&_invalid_combination,
+    },
     keywords         => MULTI_SELECT_OVERRIDE,
     'flagtypes.name' => {
         _non_changed => \&_flagtypes_nonchanged,
@@ -1620,16 +1628,16 @@ sub _special_parse_email {
     my ($self) = @_;
     my $params = $self->_params;
     
-    my @email_params = grep { $_ =~ /^email\d+$/ } keys %$params;
+    my @email_params = grep { $_ =~ /^email\d+$/a } keys %$params;
     
     my $clause = new Bugzilla::Search::Clause();
     foreach my $param (@email_params) {
-        $param =~ /(\d+)$/;
+        $param =~ /(\d+)$/a;
         my $id = $1;
         my $email = trim($params->{"email$id"});
         next if !$email;
-        my $type = $params->{"emailtype$id"} || 'anyexact';
-        $type = "anyexact" if $type eq "exact";
+        my $type = $params->{"emailtype$id"} || 'equals';
+        $type = "equals" if $type eq "exact";
 
         my $or_clause = new Bugzilla::Search::Clause('OR');
         foreach my $field (qw(assigned_to reporter cc qa_contact)) {
@@ -1720,26 +1728,28 @@ sub _params_to_data_structure {
 
 sub _boolean_charts {
     my ($self) = @_;
-    
+
+    use re '/a';
+
     my $params = $self->_params;
     my @param_list = keys %$params;
-    
+
     my @all_field_params = grep { /^field-?\d+/ } @param_list;
     my @chart_ids = map { /^field(-?\d+)/; $1 } @all_field_params;
     @chart_ids = sort { $a <=> $b } uniq @chart_ids;
-    
+
     my $clause = new Bugzilla::Search::Clause();
     foreach my $chart_id (@chart_ids) {
         my @all_and = grep { /^field$chart_id-\d+/ } @param_list;
         my @and_ids = map { /^field$chart_id-(\d+)/; $1 } @all_and;
         @and_ids = sort { $a <=> $b } uniq @and_ids;
-        
+
         my $and_clause = new Bugzilla::Search::Clause();
         foreach my $and_id (@and_ids) {
             my @all_or = grep { /^field$chart_id-$and_id-\d+/ } @param_list;
             my @or_ids = map { /^field$chart_id-$and_id-(\d+)/; $1 } @all_or;
             @or_ids = sort { $a <=> $b } uniq @or_ids;
-            
+
             my $or_clause = new Bugzilla::Search::Clause('OR');
             foreach my $or_id (@or_ids) {
                 my $identifier = "$chart_id-$and_id-$or_id";
@@ -1811,9 +1821,9 @@ sub _field_ids {
     my ($self) = @_;
     my $params = $self->_params;
     my @param_list = keys %$params;
-    
-    my @field_params = grep { /^f\d+$/ } @param_list;
-    my @field_ids = map { /(\d+)/; $1 } @field_params;
+
+    my @field_params = grep { /^f\d+$/a } @param_list;
+    my @field_ids = map { /(\d+)/a; $1 } @field_params;
     @field_ids = sort { $a <=> $b } @field_ids;
     return @field_ids;
 }
@@ -1908,9 +1918,6 @@ sub _handle_chart {
 # once we require MySQL 5.5.3 and use utf8mb4.
 sub _convert_unicode_characters {
     my $string = shift;
-
-    # Perl 5.13.8 and older complain about non-characters.
-    no warnings 'utf8';
     $string =~ s/([\x{10000}-\x{10FFFF}])/"\x{FDD0}[" . uc(sprintf('U+%04x', ord($1))) . "]\x{FDD1}"/eg;
     return $string;
 }
@@ -2127,9 +2134,7 @@ sub _substring_terms {
     # split each term on spaces and commas anyway.
     my @words = split(/[\s,]+/, $args->{value});
     @words = grep { defined $_ and $_ ne '' } @words;
-    @words = map { $dbh->quote($_) } @words;
-    my @terms = map { $dbh->sql_iposition($_, $args->{full_field}) . " > 0" }
-                    @words;
+    my @terms = map { $dbh->sql_ilike($_, $args->{full_field}) } @words;
     return @terms;
 }
 
@@ -2218,7 +2223,7 @@ sub SqlifyDate {
         return sprintf("%4d-%02d-%02d %02d:%02d:%02d", $year+1900, $month+1, $mday, $hour, $min, $sec);
     }
 
-    if ($str =~ /^(-|\+)?(\d+)([hdwmy])(s?)$/i) {   # relative date
+    if ($str =~ /^(-|\+)?(\d+)([hdwmy])(s?)$/ai) {   # relative date
         my ($sign, $amount, $unit, $startof, $date) = ($1, $2, lc $3, lc $4, time);
         my ($sec, $min, $hour, $mday, $month, $year, $wday)  = localtime($date);
         if ($sign && $sign eq '+') { $amount = -$amount; }
@@ -2516,15 +2521,63 @@ sub _user_nonchanged {
     }
 }
 
+# Changes to duplicates are stored in the longdesc table
+sub _dupe_of_changedby {
+    my ($self, $args) = @_;
+    my ($chart_id, $joins, $value) = @$args{qw(chart_id joins value)};
+
+    my $table = "longdescs_$chart_id";
+    push(@$joins, { table => 'longdescs', as => $table });
+    my $user_id = $self->_get_user_id($value);
+    $args->{term} = "$table.who = $user_id AND $table.type = " . CMT_DUPE_OF;
+
+    # If the user is not part of the insiders group, they cannot see
+    # private comments
+    if (!$self->_user->is_insider) {
+        $args->{term} .= " AND $table.isprivate = 0";
+    }
+}
+
+sub _dupe_of_changedbefore_after {
+    my ($self, $args) = @_;
+    my ($chart_id, $operator, $value, $joins) =
+        @$args{qw(chart_id operator value joins)};
+    my $dbh = Bugzilla->dbh;
+
+    my $sql_operator = ($operator =~ /before/) ? '<=' : '>=';
+    my $table = "longdescs_$chart_id";
+    my $sql_date = $dbh->quote(SqlifyDate($value));
+    my $join = {
+        table => 'longdescs',
+        as    => $table,
+        extra => ["$table.bug_when $sql_operator $sql_date AND $table.type = " . CMT_DUPE_OF ],
+    };
+    push(@$joins, $join);
+    $args->{term} = "$table.bug_when IS NOT NULL";
+
+    # If the user is not part of the insiders group, they cannot see
+    # private comments
+    if (!$self->_user->is_insider) {
+        $args->{term} .= " AND $table.isprivate = 0";
+    }
+}
+
+
 # XXX This duplicates having Commenter as a search field.
 sub _long_desc_changedby {
     my ($self, $args) = @_;
     my ($chart_id, $joins, $value) = @$args{qw(chart_id joins value)};
-    
+
     my $table = "longdescs_$chart_id";
     push(@$joins, { table => 'longdescs', as => $table });
     my $user_id = $self->_get_user_id($value);
     $args->{term} = "$table.who = $user_id";
+
+    # If the user is not part of the insiders group, they cannot see
+    # private comments
+    if (!$self->_user->is_insider) {
+        $args->{term} .= " AND $table.isprivate = 0";
+    }
 }
 
 sub _long_desc_changedbefore_after {
@@ -2532,7 +2585,7 @@ sub _long_desc_changedbefore_after {
     my ($chart_id, $operator, $value, $joins) =
         @$args{qw(chart_id operator value joins)};
     my $dbh = Bugzilla->dbh;
-    
+
     my $sql_operator = ($operator =~ /before/) ? '<=' : '>=';
     my $table = "longdescs_$chart_id";
     my $sql_date = $dbh->quote(SqlifyDate($value));
@@ -2966,6 +3019,11 @@ sub _multiselect_table {
         $args->{full_field} = $field;
         return "dependencies";
     }
+    elsif ($field eq 'dupe_of') {
+        $args->{_select_field} = 'dupe';
+        $args->{full_field} = 'dupe_of';
+        return "duplicates";
+    }
     elsif ($field eq 'longdesc') {
         $args->{_extra_where} = " AND isprivate = 0"
             if !$self->_user->is_insider;
@@ -3066,6 +3124,15 @@ sub _multiselect_isempty {
         };
         return "dependencies_$chart_id.$to IS $not NULL";
     }
+    elsif ($field eq 'dupe_of') {
+        push @$joins, {
+            table => 'duplicates',
+            as    => "duplicates_$chart_id",
+            from  => 'bug_id',
+            to    => 'dupe',
+        };
+        return "duplicates_$chart_id.dupe IS $not NULL";
+    }
     elsif ($field eq 'longdesc') {
         my @extra = ( "longdescs_$chart_id.type != " . CMT_HAS_DUPE );
         push @extra, "longdescs_$chart_id.isprivate = 0"
@@ -3153,28 +3220,26 @@ sub _simple_operator {
 
 sub _casesubstring {
     my ($self, $args) = @_;
-    my ($full_field, $quoted) = @$args{qw(full_field quoted)};
+    my ($full_field, $value) = @$args{qw(full_field value)};
     my $dbh = Bugzilla->dbh;
-    
-    $args->{term} = $dbh->sql_position($quoted, $full_field) . " > 0";
+
+    $args->{term} = $dbh->sql_like($value, $full_field);
 }
 
 sub _substring {
     my ($self, $args) = @_;
-    my ($full_field, $quoted) = @$args{qw(full_field quoted)};
+    my ($full_field, $value) = @$args{qw(full_field value)};
     my $dbh = Bugzilla->dbh;
-    
-    # XXX This should probably be changed to just use LIKE
-    $args->{term} = $dbh->sql_iposition($quoted, $full_field) . " > 0";
+
+    $args->{term} = $dbh->sql_ilike($value, $full_field);
 }
 
 sub _notsubstring {
     my ($self, $args) = @_;
-    my ($full_field, $quoted) = @$args{qw(full_field quoted)};
+    my ($full_field, $value) = @$args{qw(full_field value)};
     my $dbh = Bugzilla->dbh;
-    
-    # XXX This should probably be changed to just use NOT LIKE
-    $args->{term} = $dbh->sql_iposition($quoted, $full_field) . " = 0";
+
+    $args->{term} = $dbh->sql_not_ilike($value, $full_field);
 }
 
 sub _regexp {

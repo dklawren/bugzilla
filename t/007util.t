@@ -9,11 +9,11 @@
 #Bugzilla Test 7#
 #####Util.pm#####
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib 't';
+use lib qw(. lib local/lib/perl5 t);
 use Support::Files;
 use Test::More tests => 17;
 use DateTime;
@@ -66,7 +66,6 @@ foreach my $input (keys %email_strings) {
 # validate_email_syntax. We need to override some parameters.
 my $params = Bugzilla->params;
 $params->{emailregexp} = '.*';
-$params->{emailsuffix} = '';
 my $ascii_email = 'admin@company.com';
 # U+0430 returns the Cyrillic "а", which looks similar to the ASCII "a".
 my $utf8_email = "\N{U+0430}dmin\@company.com";

@@ -171,7 +171,6 @@ Example response for authenticated user:
           "attachment_base" : "http://bugzilla.example.com/",
           "commentonchange_resolution" : "0",
           "commentonduplicate" : "0",
-          "cookiepath" : "/",
           "createemailregexp" : ".*",
           "defaultopsys" : "",
           "defaultplatform" : "",
@@ -179,14 +178,12 @@ Example response for authenticated user:
           "defaultseverity" : "normal",
           "duplicate_or_move_bug_status" : "RESOLVED",
           "emailregexp" : "^[\\w\\.\\+\\-=']+@[\\w\\.\\-]+\\.[\\w\\-]+$",
-          "emailsuffix" : "",
           "letsubmitterchoosemilestone" : "1",
           "letsubmitterchoosepriority" : "1",
           "mailfrom" : "bugzilla-daemon@example.com",
           "maintainer" : "admin@example.com",
           "maxattachmentsize" : "1000",
           "maxlocalattachment" : "0",
-          "musthavemilestoneonaccept" : "0",
           "password_complexity" : "no_constraints",
           "rememberlogin" : "on",
           "requirelogin" : "0",
@@ -210,21 +207,18 @@ A logged-in user can access the following parameters (listed alphabetically):
 * attachment_base
 * commentonchange_resolution
 * commentonduplicate
-* cookiepath
 * defaultopsys
 * defaultplatform
 * defaultpriority
 * defaultseverity
 * duplicate_or_move_bug_status
 * emailregexpdesc
-* emailsuffix
 * letsubmitterchoosemilestone
 * letsubmitterchoosepriority
 * mailfrom
 * maintainer
 * maxattachmentsize
 * maxlocalattachment
-* musthavemilestoneonaccept
 * password_complexity
 * rememberlogin
 * requirelogin

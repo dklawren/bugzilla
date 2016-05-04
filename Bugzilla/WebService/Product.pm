@@ -7,7 +7,7 @@
 
 package Bugzilla::WebService::Product;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -54,8 +54,6 @@ use constant FIELD_MAP => {
 ##################################################
 # Add aliases here for method name compatibility #
 ##################################################
-
-BEGIN { *get_products = \&get }
 
 # Get the ids of the products the user can search
 sub get_selectable_products {
@@ -273,9 +271,9 @@ sub _component_to_hash {
         description =>
             $self->type('string' , $component->description),
         default_assigned_to =>
-            $self->type('email', $component->default_assignee->login),
+            $self->type('login', $component->default_assignee->login),
         default_qa_contact =>
-            $self->type('email', $component->default_qa_contact ?
+            $self->type('login', $component->default_qa_contact ?
                                  $component->default_qa_contact->login : ""),
         sort_key =>  # sort_key is returned to match Bug.fields
             0,
@@ -497,8 +495,6 @@ B<EXPERIMENTAL>
 Returns a list of information about the products passed to it.
 
 B<Note>: You must at least specify one of C<ids> or C<names>.
-
-B<Note>: Can also be called as "get_products" for compatibilty with Bugzilla 3.0 API.
 
 =item B<REST>
 
@@ -990,13 +986,5 @@ You must define a default milestone.
 =item REST API call added in Bugzilla B<5.0>.
 
 =back
-
-=back
-
-=head1 B<Methods in need of POD>
-
-=over
-
-=item get_products
 
 =back

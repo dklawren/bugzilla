@@ -6,11 +6,11 @@
 # This Source Code Form is "Incompatible With Secondary Licenses", as
 # defined by the Mozilla Public License, v. 2.0.
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
-use lib qw(. lib);
+use lib qw(. lib local/lib/perl5);
 
 use File::Temp;
 
@@ -61,7 +61,7 @@ sub CreateImagemap {
             # Pick up bugid from the mapdata label field. Getting the title from
             # bugtitle hash instead of mapdata allows us to get the summary even
             # when showsummary is off, and also gives us status and resolution.
-            my $bugtitle = html_quote(clean_text($bugtitles{$bugid}));
+            my $bugtitle = $bugtitles{$bugid};
             $map .= qq{<area alt="bug $bugid" name="bug$bugid" shape="rect" } .
                     qq{title="$bugtitle" href="$url" } .
                     qq{coords="$leftx,$topy,$rightx,$bottomy">\n};
@@ -148,8 +148,10 @@ if ($display eq 'web') {
 # This is the default: a tree instead of a spider web.
 else {
     my @blocker_stack = @stack;
+    my $hide_resolved = $cgi->param('hide_resolved');
+
     foreach my $id (@blocker_stack) {
-        my $blocker_ids = Bugzilla::Bug::EmitDependList('blocked', 'dependson', $id);
+        my $blocker_ids = Bugzilla::Bug::EmitDependList('blocked', 'dependson', $id, $hide_resolved);
         foreach my $blocker_id (@$blocker_ids) {
             push(@blocker_stack, $blocker_id) unless $seen{$blocker_id};
             AddLink($id, $blocker_id, $fh);
@@ -157,7 +159,7 @@ else {
     }
     my @dependent_stack = @stack;
     foreach my $id (@dependent_stack) {
-        my $dep_bug_ids = Bugzilla::Bug::EmitDependList('dependson', 'blocked', $id);
+        my $dep_bug_ids = Bugzilla::Bug::EmitDependList('dependson', 'blocked', $id, $hide_resolved);
         foreach my $dep_bug_id (@$dep_bug_ids) {
             push(@dependent_stack, $dep_bug_id) unless $seen{$dep_bug_id};
             AddLink($dep_bug_id, $id, $fh);
@@ -180,12 +182,15 @@ foreach my $k (@bug_ids) {
     # Retrieve bug information from the database
     my ($stat, $resolution, $summary) = $dbh->selectrow_array($sth, undef, $k);
 
-    # Resolution and summary are shown only if user can see the bug
-    if (!$user->can_see_bug($k)) {
+    $vars->{'short_desc'} = $summary if ($k eq $cgi->param('id'));
+
+    # The bug summary is shown only if the user can see the bug.
+    if ($user->can_see_bug($k)) {
+        $summary = html_quote(clean_text($summary));
+    }
+    else {
         $summary = '';
     }
-
-    $vars->{'short_desc'} = $summary if ($k eq $cgi->param('id'));
 
     my @params;
 
@@ -194,6 +199,9 @@ foreach my $k (@bug_ids) {
         utf8::encode($summary) if utf8::is_utf8($summary);
         $summary = wrap_comment($summary);
         $summary =~ s/([\\\"])/\\$1/g;
+        # Newlines must be escaped too, to not break the .map file
+        # and to prevent code injection.
+        $summary =~ s/\n/\\n/g;
         push(@params, qq{label="$k\\n$summary"});
     }
 
@@ -322,6 +330,7 @@ $vars->{'multiple_bugs'} = ($cgi->param('id') =~ /[ ,]/);
 $vars->{'display'} = $display;
 $vars->{'rankdir'} = $rankdir;
 $vars->{'showsummary'} = $cgi->param('showsummary');
+$vars->{'hide_resolved'} = $cgi->param('hide_resolved');
 
 # Generate and return the UI (HTML page) from the appropriate template.
 print $cgi->header();

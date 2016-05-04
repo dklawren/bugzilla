@@ -7,7 +7,7 @@
 
 package Bugzilla::Markdown;
 
-use 5.10.1;
+use 5.14.0;
 use strict;
 use warnings;
 
@@ -18,7 +18,9 @@ use Digest::MD5 qw(md5_hex);
 
 use parent qw(Text::MultiMarkdown);
 
-@Bugzilla::Markdown::EXPORT = qw(new);
+# use private code points
+use constant FENCED_BLOCK => "\N{U+F111}";
+use constant INDENTED_FENCED_BLOCK => "\N{U+F222}";
 
 # Regex to match balanced [brackets]. See Friedl's
 # "Mastering Regular Expressions", 2nd Ed., pp. 328-331.
@@ -44,6 +46,7 @@ $g_nested_parens = qr{
 }x;
 
 our %g_escape_table;
+
 foreach my $char (split //, '\\`*_{}[]()>#+-.!~') {
     $g_escape_table{$char} = md5_hex($char);
 }
@@ -75,9 +78,22 @@ sub _Markdown {
     my $self = shift;
     my $text = shift;
 
-    $text = Bugzilla::Template::quoteUrls($text, undef, undef, undef, undef, 1);
+    $text = $self->_removeFencedCodeBlocks($text);
+    $text = Bugzilla::Template::quoteUrls($text, undef, undef, undef, 1);
 
     return $self->SUPER::_Markdown($text, @_);
+}
+
+sub _code_blocks {
+    my ($self) = @_;
+    $self->{code_blocks} = $self->{params}->{code_blocks} ||= [];
+    return $self->{code_blocks};
+}
+
+sub _indented_code_blocks {
+    my ($self) = @_;
+    $self->{indented_code_blocks} = $self->{params}->{indented_code_blocks} ||= [];
+    return $self->{indented_code_blocks};
 }
 
 sub _RunSpanGamut {
@@ -104,13 +120,50 @@ sub _RunSpanGamut {
     return $text;
 }
 
+# We first replace all fenced code blocks with just their
+# surrounding backticks and an empty body to know where
+# they are exactly for later processing. The bodies of
+# blocks will be in an array. This measure is taken to not
+# interpret fenced code blocks contents as possible markdown
+# structures. The contents of the body will be processed after
+# processing markdown structures.
+sub _removeFencedCodeBlocks {
+    my ($self, $text) = @_;
+    $text =~ s{
+        ^ `{3,} [\s\t]* \n
+        (                # $1 = the entire code block
+          (?: .* \n+)+?
+        )
+        `{3,} [\s\t]* $
+        }{
+            push @{$self->_code_blocks}, $1;
+            "${\FENCED_BLOCK}\n";
+        }egmx;
+
+    $text =~ s{
+        (?:\n\n|\A)
+        (                # $1 = the code block -- one or more lines, starting with a space/tab
+          (?:
+            (?:[ ]{$self->{tab_width}} | \t)   # Lines must start with a tab or a tab-width of spaces
+            .*\n+
+          )+
+        )
+        ((?=^[ ]{0,$self->{tab_width}}\S)|\Z)    # Lookahead for non-space at line-start, or end of doc
+        }{
+            push @{$self->_indented_code_blocks}, $1;
+            "\n${\INDENTED_FENCED_BLOCK}\n";
+        }egmx;
+    return $text;
+}
+
 # Override to check for HTML-escaped <>" chars.
 sub _StripLinkDefinitions {
-#
-# Strips link definitions from text, stores the URLs and titles in
-# hash references.
-#
     my ($self, $text) = @_;
+
+    #
+    # Strips link definitions from text, stores the URLs and titles in
+    # hash references.
+    #
     my $less_than_tab = $self->{tab_width} - 1;
 
     # Link defs are in the form: ^[id]: url "optional title"
@@ -378,13 +431,10 @@ sub _DoCodeBlocks {
     my ($self, $text) = @_;
 
     $text =~ s{
-        ^ `{3,} [\s\t]* \n
-        (                # $1 = the entire code block
-          (?: .* \n+)+?
-        )
-        `{3,} [\s\t]* $
+        ^ (${\FENCED_BLOCK}|${\INDENTED_FENCED_BLOCK})
         }{
-            my $codeblock = $1;
+            my $aref = ($1 eq FENCED_BLOCK) ? $self->_code_blocks : $self->_indented_code_blocks;
+            my $codeblock = shift @$aref;
             my $result;
 
             $codeblock = $self->_EncodeCode($codeblock);
@@ -394,9 +444,6 @@ sub _DoCodeBlocks {
             $result = "\n\n<pre><code>" . $codeblock . "</code></pre>\n\n";
             $result;
         }egmx;
-
-    # And now do the standard code blocks
-    $text = $self->SUPER::_DoCodeBlocks($text);
 
     return $text;
 }
@@ -427,6 +474,17 @@ sub _DoBlockQuotes {
                     }egs;
             "<blockquote class=\"markdown\">\n$bq\n</blockquote>\n\n";
         }egmx;
+
+    return $text;
+}
+
+sub _DoLists {
+    my ($self, $text) = @_;
+
+    $text = $self->SUPER::_DoLists($text);
+
+    # strip trailing newlines created by DoLists
+    $text =~ s/\n</</g;
 
     return $text;
 }
@@ -479,9 +537,9 @@ sub _UnescapeSpecialChars {
 # are bound together with underscores, the string has the desired form.
 sub _has_multiple_underscores {
     my $string = shift;
-    return 0 unless defined($string) && length($string);
-    return 0 if $string =~ /[\t\s]+/;
-    return 1 if scalar (split /_/, $string) > 1;
+    return 0 unless $string;
+    return 0 if $string =~ /\s/;
+    return 1 if $string =~ /_/;
     return 0;
 }
 

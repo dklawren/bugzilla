@@ -18,10 +18,15 @@ use warnings;
 
 use File::Basename;
 BEGIN { chdir dirname($0); }
-use lib qw(. lib local/lib/perl5);
+use lib qw(. lib local/lib/perl5 .checksetup_lib/lib/perl5);
+
+# the @INC which checksetup needs to operate against.
+our @BUGZILLA_INC = grep { !/checksetup_lib/ } @INC;
 
 use Getopt::Long qw(:config bundling);
 use Pod::Usage;
+# Bug 1270550 - Tie::Hash::NamedCapture must be loaded before Safe.
+use Tie::Hash::NamedCapture;
 use Safe;
 
 use Bugzilla::Constants;
@@ -43,6 +48,7 @@ init_console();
 my %switch;
 GetOptions(\%switch, 'help|h|?',
                      'no-templates|t', 'verbose|v|no-silent',
+                     'cpanm:s', 'check-modules',
                      'make-admin=s', 'reset-password=s', 'version|V',
                      'no-permissions|p');
 
@@ -53,13 +59,43 @@ pod2usage({-verbose => 1, -exitval => 1}) if $switch{'help'};
 # non-interactive mode.
 my $answers_file = $ARGV[0];
 my $silent = $answers_file && !$switch{'verbose'};
-
 print(install_string('header', get_version_and_os()) . "\n") unless $silent;
 exit 0 if $switch{'version'};
-# Check required --MODULES--
-my $module_results = check_requirements(!$silent);
-# Break out if checking the modules is all we have been asked to do.
 
+if (defined $switch{cpanm}) {
+    my $default = 'all notest -oracle -mysql -pg -mod_perl -old_charts -new_charts -graphical_reports -detect_charset';
+    my @features = split(/\s+/, $switch{cpanm} || $default);
+    my @cpanm_args = ('-l', 'local', '--installdeps');
+    while (my $feature = shift @features) {
+        if ($feature eq 'all') {
+            push @cpanm_args, '--with-all-features';
+        }
+        elsif ($feature eq 'default') {
+            unshift @features, split(/\s+/, $default);
+        }
+        elsif ($feature eq 'notest' || $feature eq 'skip-satisfied' || $feature eq 'quiet') {
+            push @cpanm_args, "--$feature";
+        }
+        elsif ($feature =~ /^-(.+)$/) {
+            push @cpanm_args, "--without-feature=$1";
+        }
+        else {
+            push @cpanm_args, "--with-feature=$feature";
+        }
+    }
+    print "cpanm @cpanm_args \".\"\n" if !$silent;
+    my $rv = system('cpanm', @cpanm_args, '.');
+    exit 1 if $rv != 0;
+}
+
+my $meta = load_cpan_meta();
+my $requirements = check_cpan_requirements($meta, \@BUGZILLA_INC, !$silent);
+
+exit 1 unless $requirements->{ok};
+
+check_all_cpan_features($meta, \@BUGZILLA_INC, !$silent);
+
+exit 0 if $switch{'check-modules'};
 ###########################################################################
 # Load Bugzilla Modules
 ###########################################################################
@@ -235,10 +271,11 @@ checksetup.pl - A do-it-all upgrade and installation script for Bugzilla.
 
 =head1 SYNOPSIS
 
- ./checksetup.pl [--help|--version]
- ./checksetup.pl [SCRIPT [--verbose]] [--no-templates|-t]
+ ./checksetup.pl [--help|--version|--check-modules]
+ ./checksetup.pl [SCRIPT [--verbose]] [--no-templates|-t] [--no-permissions|-p]
                  [--make-admin=user@domain.com]
                  [--reset-password=user@domain.com]
+                 [--cpanm[=OPTIONS]]
 
 =head1 OPTIONS
 
@@ -288,6 +325,14 @@ Don't update file permissions. Owner, group, and mode of files and
 directories will not be changed. Use this if your installation is
 managed by a software packaging system such as RPM or APT.
 
+=item B<--check-modules>
+
+Only check for correct module dependencies and quit afterward.
+
+=item B<--cpanm[=OPTIONS]>
+
+Use F<cpanm> to install all missing modules or as directed by the OPTIONS.
+
 =back
 
 =head1 DESCRIPTION
@@ -329,7 +374,8 @@ F<checksetup.pl> runs through several stages during installation:
 =item 1
 
 Checks if the required and optional perl modules are installed,
-using L<Bugzilla::Install::Requirements/check_requirements>.
+using L<Bugzilla::Install::Requirements/check_cpan_requirements>
+and L<Bugzilla::Install::Requirements/check_all_cpan_features>.
 
 =item 2
 

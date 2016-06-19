@@ -163,7 +163,8 @@ sub quoteUrls {
 
     # If the comment is already wrapped, we should ignore newlines when
     # looking for matching regexps. Else we should take them into account.
-    my $s = ($comment && $comment->already_wrapped) ? qr/\s/ : qr/\h/;
+    # And confirm comment is an object, it could be a hash from WebService::Bug::render_comment
+    my $s = ($comment && ref($comment) eq 'Bugzilla::Comment' && $comment->already_wrapped) ? qr/\s/ : qr/\h/;
 
     # However, note that adding the title (for buglinks) can affect things
     # In particular, attachment matches go before bug titles, so that titles
@@ -827,7 +828,7 @@ sub create {
                                       && ((ref($comment) eq 'HASH' && $comment->{is_markdown})
                                          || (ref($comment) eq 'Bugzilla::Comment' && $comment->is_markdown)))
                                   {
-                                      return Bugzilla->markdown->markdown($text);
+                                      return Bugzilla->markdown->markdown($text, $bug, $comment);
                                   }
                                   return quoteUrls($text, $bug, $comment, $user);
                               };
@@ -1146,22 +1147,38 @@ sub create {
 
             'install_string' => \&Bugzilla::Install::Util::install_string,
 
+            'feature_description' => \&Bugzilla::Install::Util::feature_description,
+
             'report_columns' => \&Bugzilla::Search::REPORT_COLUMNS,
 
             # These don't work as normal constants.
             DB_MODULE        => \&Bugzilla::Constants::DB_MODULE,
-            REQUIRED_MODULES => 
-                \&Bugzilla::Install::Requirements::REQUIRED_MODULES,
-            OPTIONAL_MODULES => sub {
-                my @optional = @{OPTIONAL_MODULES()};
-                foreach my $item (@optional) {
-                    my @features;
-                    foreach my $feat_id (@{ $item->{feature} }) {
-                        push(@features, install_string("feature_$feat_id"));
-                    }
-                    $item->{feature} = \@features;
+            REQUIRED_MODULES => sub {
+                my %required_modules;
+                my $cache = Bugzilla->request_cache;
+                my $meta = $cache->{cpan_meta} ||= Bugzilla::Install::Requirements::load_cpan_meta();
+                my $reqs = $meta->effective_prereqs->merged_requirements(['configure', 'runtime'], ['requires']);
+                foreach my $module (sort $reqs->required_modules) {
+                    next if $module eq 'perl';
+                    $required_modules{$module} = { version => $reqs->requirements_for_module($module) };
                 }
-                return \@optional;
+                return \%required_modules;
+            },
+            OPTIONAL_MODULES => sub {
+                my %optional_modules;
+                my $cache = Bugzilla->request_cache;
+                my $meta = $cache->{cpan_meta} ||= Bugzilla::Install::Requirements::load_cpan_meta();
+                foreach my $feature ($meta->features) {
+                    my $reqs = $feature->prereqs->merged_requirements(['configure', 'runtime'], ['requires']);
+                    foreach my $module ($reqs->required_modules) {
+                        my $version = $reqs->requirements_for_module($module);
+                        $optional_modules{$module} ||= {};
+                        $optional_modules{$module}{version} = $version;
+                        $optional_modules{$module}{features} ||= [];
+                        push(@{$optional_modules{$module}{features}}, $feature->description);
+                    }
+                }
+                return \%optional_modules;
             },
             'default_authorizer' => sub { return Bugzilla::Auth->new() },
 

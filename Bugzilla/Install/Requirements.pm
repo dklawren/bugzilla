@@ -84,8 +84,7 @@ use constant FEATURE_FILES => (
     jsonrpc       => ['Bugzilla/WebService/Server/JSONRPC.pm', 'jsonrpc.cgi'],
     xmlrpc        => ['Bugzilla/WebService/Server/XMLRPC.pm', 'xmlrpc.cgi',
                       'Bugzilla/WebService.pm', 'Bugzilla/WebService/*.pm'],
-    rest          => ['Bugzilla/API/Server.pm', 'rest.cgi', 'Bugzilla/API/*/*.pm',
-                      'Bugzilla/API/*/Server.pm', 'Bugzilla/API/*/Resource/*.pm'],
+    csp           => ['Bugzilla/CGI/ContentSecurityPolicy.pm'],
     psgi          => ['app.psgi'],
     moving        => ['importxml.pl'],
     auth_ldap     => ['Bugzilla/Auth/Verify/LDAP.pm'],
@@ -96,7 +95,7 @@ use constant FEATURE_FILES => (
                       'Bugzilla/JobQueue/*', 'jobqueue.pl'],
     patch_viewer  => ['Bugzilla/Attachment/PatchReader.pm'],
     updates       => ['Bugzilla/Update.pm'],
-    markdown      => ['Bugzilla/Markdown.pm'],
+    markdown      => ['Bugzilla/Markdown.pm', 't/100markdown.t'],
     memcached     => ['Bugzilla/Memcache.pm'],
     auth_delegation => ['auth.cgi'],
 );
